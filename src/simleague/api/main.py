@@ -43,14 +43,15 @@ class TeamModel(BaseModel):
     division: str | None = None
 
 class GameModel(BaseModel):
+    id: str
+    seasonId: str
     week: int
     homeTeamId: str
     awayTeamId: str
     homeScore: int
     awayScore: int
     date: datetime
-    id: str 
-    complete: bool = False
+    completed: bool = False
 
 
     #  Playoff-only. Absent on regular season games
@@ -198,7 +199,7 @@ def create_game(game : GameModel) -> GameModel:
     return game
 
 
-@app.get("games")
+@app.get("/games")
 def list_games(
     seasonId: str | None = None,
     week: int | None = None,
@@ -222,7 +223,7 @@ def list_games(
 
 
 @app.get("/games/{game_id}")
-def get_game(game_id: str) -> None:
+def get_game(game_id: str) -> GameModel:
     return GameModel(**require(games, game_id, "Game"))
 
 
@@ -247,7 +248,7 @@ def list_players(teamId: str | None = None) -> list[PlayerModel]:
         rows = [r for r in rows if r["teamId"] == teamId]
     return [PlayerModel(**row) for row in rows]
 
-@app.get("/players/{plater_id}")
+@app.get("/players/{player_id}")
 def get_player(player_id: str) -> PlayerModel:
     return PlayerModel(**require(players, player_id, "Player"))
 
@@ -256,7 +257,7 @@ def get_player(player_id: str) -> PlayerModel:
 
 
 @app.post("/stats", status_code=status.HTTP_201_CREATED)
-def create_stat_line(stat: PlayerGameStateModel) -> PlayerGameStateModel:
+def create_stat_line(stat: PlayerGameStatModel) -> PlayerGameStatModel:
     reject_duplicate(player_game_stats, stat.id, "Stat line")
     require(games, stat.gameId, "Game")
     require(players, stat.playerId, "Player")
