@@ -1,11 +1,11 @@
-"""Flatten the nested standing export into normalized records.
+"""Flatten the nested standings export into normalized records.
 
 Reads the `{seasons: {"1": {games: [...]}}}` shape and produces flat
 league / season / team / game records that match the models in main.py.
 
 Usage:
-    python seed.py nfl-standings-data-8-26-2026.json            # report only
-    python seed.py nfl-standings-data-8-26-2026.json --write    # write ./data
+    python seed.py nfl-standings-data-8-26-2026.json           # report only
+    python seed.py nfl-standings-data-8-26-2026.json --write   # write ./data
 """
 
 from __future__ import annotations
@@ -15,12 +15,19 @@ import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
- 
-from main import GameModel, LeagueModel, SeasonModel, TeamModel
+
+from simleague.domain.models import (
+    GameModel,
+    LeagueModel,
+    SeasonModel,
+    TeamModel,
+)
 
 LEAGUE_ID = "sim"
 LEAGUE_NAME = "The Sim League"
 
+# 2007 alignment, which is what the team id vocabulary in the export reflects
+# (oak, sd, stl, was are all present).
 TEAMS: dict[str, tuple[str, str, str]] = {
     "buf": ("Bills", "AFC", "East"),
     "mia": ("Dolphins", "AFC", "East"),
@@ -57,17 +64,16 @@ TEAMS: dict[str, tuple[str, str, str]] = {
 }
 
 # Present in the export, deliberately not carried over.
-# status       - missing on 886 of 2,403 and `completed` is True on all
-#                of them so the two fields say the same thing and one is unreliable.
-#       broadcast - empty string on most records.\
-
+#   status    - missing on 886 of 2,403 games, and `completed` is True on all
+#               of them, so the two fields say the same thing and one is
+#               unreliable.
+#   broadcast - empty string on most records.
 DROPPED_FIELDS = {"status", "broadcast"}
-
-
 
 
 def build_league() -> LeagueModel:
     return LeagueModel(id=LEAGUE_ID, name=LEAGUE_NAME)
+
 
 def build_teams() -> list[TeamModel]:
     return [
@@ -75,28 +81,29 @@ def build_teams() -> list[TeamModel]:
         for tid, (name, conf, div) in TEAMS.items()
     ]
 
+
 def build_seasons(raw: dict[str, Any]) -> list[SeasonModel]:
     return [
         SeasonModel(id=key, leagueId=LEAGUE_ID, name=str(value.get("name", key)))
-        for key, value in sorted(raw["seasons"].items(), key=lambda kv:int(kv[0]))
-        ]
+        for key, value in sorted(raw["seasons"].items(), key=lambda kv: int(kv[0]))
+    ]
 
 
 def build_game(record: dict[str, Any], season_id: str) -> GameModel:
     """Transform one raw game record.
- 
+
     Three fixes happen here:
- 
+
     1. seasonId backfill. Absent on the 2,304 regular season records, where
        the season is implied by which dict key the game sits under. Lift the
        record out of the tree and that meaning is lost, so it gets written
        onto the record explicitly.
- 
+
     2. Date normalization. Handled by GameModel's to_utc validator, which is
        why records go through the model rather than straight into storage.
        The export mixes naive (`...T00:00:00`) and UTC (`...T00:00:00.000Z`)
        timestamps, and Python raises TypeError comparing one to the other.
- 
+
     3. Super Bowl conference. All nine Super Bowls in the export are tagged
        AFC, which is why the raw counts come out AFC 54 / NFC 45. A Super
        Bowl is not a conference game, so the field is cleared rather than
@@ -111,7 +118,6 @@ def build_game(record: dict[str, Any], season_id: str) -> GameModel:
     return GameModel(**payload)
 
 
-
 def load_export(path: Path) -> dict[str, list[Any]]:
     raw = json.loads(path.read_text())
 
@@ -119,7 +125,6 @@ def load_export(path: Path) -> dict[str, list[Any]]:
     for season_key, season in sorted(
         raw["seasons"].items(), key=lambda kv: int(kv[0])
     ):
-
         for record in season.get("games", []):
             games.append(build_game(record, season_key))
 
@@ -140,7 +145,7 @@ def check(data: dict[str, list[Any]]) -> list[str]:
     duplicates = [gid for gid, n in ids.items() if n > 1]
     if duplicates:
         problems.append(f"duplicate game ids: {duplicates[:5]}")
-    
+
     season_ids = {s.id for s in data["seasons"]}
     orphans = {g.seasonId for g in games} - season_ids
     if orphans:
@@ -159,7 +164,7 @@ def check(data: dict[str, list[Any]]) -> list[str]:
     naive = [g.id for g in games if g.date.tzinfo is None]
     if naive:
         problems.append(f"timezone-naive dates survived: {naive[:5]}")
- 
+
     return problems
 
 
@@ -174,8 +179,6 @@ def report(data: dict[str, list[Any]]) -> None:
     print(f"games    {len(games):>6}  ({len(regular)} regular, {len(playoff)} playoff)")
     print()
 
-
-
     print("per season:")
     for season in data["seasons"]:
         rows = [g for g in games if g.seasonId == season.id]
@@ -185,13 +188,13 @@ def report(data: dict[str, list[Any]]) -> None:
             f"  weeks {min(weeks)}-{max(weeks)}"
         )
     print()
- 
+
     rounds = Counter(g.round for g in playoff if g.round)
     print("playoff rounds:", dict(rounds))
     conferences = Counter(g.conference for g in playoff)
     print("playoff conferences:", dict(conferences))
     print()
- 
+
     problems = check(data)
     if problems:
         print("PROBLEMS")
@@ -199,8 +202,8 @@ def report(data: dict[str, list[Any]]) -> None:
             print(" ", p)
     else:
         print("all checks passed")
- 
- 
+
+
 def write(data: dict[str, list[Any]], out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
     for name, records in data.items():
@@ -209,40 +212,39 @@ def write(data: dict[str, list[Any]], out: Path) -> None:
             json.dumps([r.model_dump(mode="json") for r in records], indent=2)
         )
         print(f"wrote {target}  ({len(records)} records)")
- 
- 
-def seed_app() -> None:
+
+
+def seed_app(path: Path) -> None:
     """Load the export directly into the running app's in-memory stores."""
-    import main
- 
-    data = load_export(Path(sys.argv[1]))
+    from simleague.api import main
+
+    data = load_export(path)
     for name in ("leagues", "seasons", "teams", "games"):
         store = getattr(main, name)
         store.clear()
         for record in data[name]:
             store[record.id] = record.model_dump()
- 
- 
+
+
 def main_cli() -> int:
     if len(sys.argv) < 2:
         print(__doc__)
         return 1
- 
+
     path = Path(sys.argv[1])
     if not path.exists():
         print(f"no such file: {path}")
         return 1
- 
+
     data = load_export(path)
     report(data)
- 
+
     if "--write" in sys.argv:
         print()
-        write(data, Path("data"))
- 
+        write(data, Path("data/normalized"))
+
     return 0 if not check(data) else 1
- 
- 
+
+
 if __name__ == "__main__":
     raise SystemExit(main_cli())
- 

@@ -1,18 +1,26 @@
 from __future__ import annotations
- 
-from datetime import datetime, timezone
-from typing import Literal
- 
+
 from fastapi import FastAPI, HTTPException, status
-from pydantic import BaseModel, field_validator
-app = FastAPI(
-    title='SimLeague',
-    version="0.1.0",
-    description="Simulation results, stats, and standings"
+
+from simleague.domain.models import (
+    STAT_FIELDS,
+    GameModel,
+    LeagueModel,
+    PlayerGameStatModel,
+    PlayerModel,
+    SeasonModel,
+    TeamModel,
 )
-# ----------------------------------------------------------------- storage
-# Keyed by id instead of a list: lookup is O(1) and mirrors a primary key
-# Each of these becoes a table when you move to Postgres
+
+app = FastAPI(
+    title="SimLeague",
+    version="0.1.0",
+    description="Simulation results, stats, and standings",
+)
+
+# ---------------------------------------------------------------- storage
+# Keyed by id instead of a list: lookup is O(1) and mirrors a primary key.
+# Each of these becomes a table when you move to Postgres.
 
 leagues: dict[str, dict] = {}
 seasons: dict[str, dict] = {}
@@ -21,92 +29,9 @@ games: dict[str, dict] = {}
 players: dict[str, dict] = {}
 player_game_stats: dict[str, dict] = {}
 
-PlayoffRound = Literal["wildcard", "divisional", "conference", "superbowl"]
-Conference = Literal["AFC", "NFC"]
 
-
-
-
-class LeagueModel(BaseModel):
-    id: str
-    name: str
-
-class SeasonModel(BaseModel):
-    id: str
-    leagueId: str
-    name: str
-
-class TeamModel(BaseModel):
-    id: str
-    name: str
-    conference: Conference | None = None
-    division: str | None = None
-
-class GameModel(BaseModel):
-    id: str
-    seasonId: str
-    week: int
-    homeTeamId: str
-    awayTeamId: str
-    homeScore: int
-    awayScore: int
-    date: datetime
-    completed: bool = False
-
-
-    #  Playoff-only. Absent on regular season games
-    isPlayoff: bool = False
-    round: PlayoffRound | None = None
-    conference: Conference | None = None
-    matchup: int | None = None
-    homeTeamSeed: str | None = None
-    awayTeamSeed: str | None = None
-
-    @field_validator("date")
-    @classmethod
-    def to_utc(cls, value: datetime) -> datetime:
-        """The export mixes naive and Z-suffixed timestamps. Force one shape 
-        so comparisons between two games never raise TypeError."""
-        if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc)
-
-
-
-
-class PlayerModel(BaseModel):
-    id: str
-    name: str
-    position: str
-    teamId: str | None = None
-
-
-class PlayerGameStatModel(BaseModel):
-
-    id: str
-    gameId: str
-    playerId: str
-    teamId: str
- 
-    passAttempts: int = 0
-    passCompletions: int = 0
-    passYards: int = 0
-    passTouchdowns: int = 0
-    interceptions: int = 0
- 
-    rushAttempts: int = 0
-    rushYards: int = 0
-    rushTouchdowns: int = 0
- 
-    receptions: int = 0
-    receivingYards: int = 0
-    receivingTouchdowns: int = 0
- 
-    tackles: int = 0
-    sacks: float = 0.0
- 
- 
 # ---------------------------------------------------------------- helpers
+
 
 def require(store: dict[str, dict], key: str, label: str) -> dict:
     record = store.get(key)
@@ -120,10 +45,10 @@ def reject_duplicate(store: dict[str, dict], key: str, label: str) -> None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"{label} {key} already exists",
-
         )
 
 
+# ---------------------------------------------------------------- root
 
 
 @app.get("/")
@@ -131,12 +56,15 @@ def root() -> dict[str, str]:
     return {"service": "SimLeague", "docs": "/docs"}
 
 
+# ---------------------------------------------------------------- leagues
+
 
 @app.post("/leagues", status_code=status.HTTP_201_CREATED)
 def create_league(league: LeagueModel) -> LeagueModel:
     reject_duplicate(leagues, league.id, "League")
     leagues[league.id] = league.model_dump()
     return league
+
 
 @app.get("/leagues")
 def list_leagues() -> list[LeagueModel]:
@@ -147,7 +75,8 @@ def list_leagues() -> list[LeagueModel]:
 def get_league(league_id: str) -> LeagueModel:
     return LeagueModel(**require(leagues, league_id, "League"))
 
-# /season
+
+# ---------------------------------------------------------------- seasons
 
 
 @app.post("/seasons", status_code=status.HTTP_201_CREATED)
@@ -160,18 +89,19 @@ def create_season(season: SeasonModel) -> SeasonModel:
 
 @app.get("/seasons")
 def list_seasons(leagueId: str | None = None) -> list[SeasonModel]:
-    rows = seasons.values()
+    rows = list(seasons.values())
     if leagueId is not None:
         rows = [r for r in rows if r["leagueId"] == leagueId]
     return [SeasonModel(**row) for row in rows]
+
 
 @app.get("/seasons/{season_id}")
 def get_season(season_id: str) -> SeasonModel:
     return SeasonModel(**require(seasons, season_id, "Season"))
 
 
+# ---------------------------------------------------------------- teams
 
-# Teams
 
 @app.post("/teams", status_code=status.HTTP_201_CREATED)
 def create_team(team: TeamModel) -> TeamModel:
@@ -190,10 +120,11 @@ def get_team(team_id: str) -> TeamModel:
     return TeamModel(**require(teams, team_id, "Team"))
 
 
-# Games
+# ---------------------------------------------------------------- games
+
 
 @app.post("/games", status_code=status.HTTP_201_CREATED)
-def create_game(game : GameModel) -> GameModel:
+def create_game(game: GameModel) -> GameModel:
     reject_duplicate(games, game.id, "Game")
     games[game.id] = game.model_dump()
     return game
@@ -208,15 +139,15 @@ def list_games(
 ) -> list[GameModel]:
     rows = list(games.values())
     if seasonId is not None:
-        rows = [r for r in rows if r["seasonId"]== seasonId]
+        rows = [r for r in rows if r["seasonId"] == seasonId]
     if week is not None:
         rows = [r for r in rows if r["week"] == week]
     if isPlayoff is not None:
-        rows = [r for r in rows if r ["isPlayoff"] == isPlayoff]
+        rows = [r for r in rows if r["isPlayoff"] == isPlayoff]
     if teamId is not None:
         rows = [
             r for r in rows
-            if r ["homeTeamId"] == teamId or r ["awayTeamId"] == teamId
+            if r["homeTeamId"] == teamId or r["awayTeamId"] == teamId
         ]
     rows.sort(key=lambda r: (r["seasonId"], r["week"], r["date"]))
     return [GameModel(**row) for row in rows]
@@ -233,7 +164,8 @@ def delete_game(game_id: str) -> None:
     del games[game_id]
 
 
-# Players
+# ---------------------------------------------------------------- players
+
 
 @app.post("/players", status_code=status.HTTP_201_CREATED)
 def create_player(player: PlayerModel) -> PlayerModel:
@@ -241,19 +173,21 @@ def create_player(player: PlayerModel) -> PlayerModel:
     players[player.id] = player.model_dump()
     return player
 
+
 @app.get("/players")
 def list_players(teamId: str | None = None) -> list[PlayerModel]:
-    rows = players.values()
+    rows = list(players.values())
     if teamId is not None:
         rows = [r for r in rows if r["teamId"] == teamId]
     return [PlayerModel(**row) for row in rows]
+
 
 @app.get("/players/{player_id}")
 def get_player(player_id: str) -> PlayerModel:
     return PlayerModel(**require(players, player_id, "Player"))
 
 
-# Stats
+# ---------------------------------------------------------------- stats
 
 
 @app.post("/stats", status_code=status.HTTP_201_CREATED)
@@ -263,6 +197,7 @@ def create_stat_line(stat: PlayerGameStatModel) -> PlayerGameStatModel:
     require(players, stat.playerId, "Player")
     player_game_stats[stat.id] = stat.model_dump()
     return stat
+
 
 @app.get("/stats")
 def list_stat_lines(
@@ -282,17 +217,11 @@ def list_stat_lines(
         rows = [r for r in rows if r["gameId"] in season_game_ids]
     return [PlayerGameStatModel(**row) for row in rows]
 
-STAT_FIELDS = [
-    name
-    for name, field in PlayerGameStatModel.model_fields.items()
-    if field.annotation in (int, float)
-]
-
 
 @app.get("/players/{player_id}/totals")
 def player_totals(player_id: str, seasonId: str | None = None) -> dict:
-    """Career totals, or one season's, by summing the join table
-    
+    """Career totals, or one season's, by summing the join table.
+
     This is the payoff for the flat design: no tree walking, and in Postgres
     it becomes a single GROUP BY.
     """
@@ -306,5 +235,5 @@ def player_totals(player_id: str, seasonId: str | None = None) -> dict:
         "playerId": player_id,
         "seasonId": seasonId,
         "gamesPlayed": len(lines),
-        "totals": totals
+        "totals": totals,
     }
