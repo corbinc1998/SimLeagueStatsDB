@@ -1,0 +1,194 @@
+[
+  {
+    "id": "buf",
+    "name": "Bills",
+    "conference": "AFC",
+    "division": "East"
+  },
+  {
+    "id": "mia",
+    "name": "Dolphins",
+    "conference": "AFC",
+    "division": "East"
+  },
+  {
+    "id": "ne",
+    "name": "Patriots",
+    "conference": "AFC",
+    "division": "East"
+  },
+  {
+    "id": "nyj",
+    "name": "Jets",
+    "conference": "AFC",
+    "division": "East"
+  },
+  {
+    "id": "bal",
+    "name": "Ravens",
+    "conference": "AFC",
+    "division": "North"
+  },
+  {
+    "id": "cin",
+    "name": "Bengals",
+    "conference": "AFC",
+    "division": "North"
+  },
+  {
+    "id": "cle",
+    "name": "Browns",
+    "conference": "AFC",
+    "division": "North"
+  },
+  {
+    "id": "pit",
+    "name": "Steelers",
+    "conference": "AFC",
+    "division": "North"
+  },
+  {
+    "id": "hou",
+    "name": "Texans",
+    "conference": "AFC",
+    "division": "South"
+  },
+  {
+    "id": "ind",
+    "name": "Colts",
+    "conference": "AFC",
+    "division": "South"
+  },
+  {
+    "id": "jax",
+    "name": "Jaguars",
+    "conference": "AFC",
+    "division": "South"
+  },
+  {
+    "id": "ten",
+    "name": "Titans",
+    "conference": "AFC",
+    "division": "South"
+  },
+  {
+    "id": "den",
+    "name": "Broncos",
+    "conference": "AFC",
+    "division": "West"
+  },
+  {
+    "id": "kc",
+    "name": "Chiefs",
+    "conference": "AFC",
+    "division": "West"
+  },
+  {
+    "id": "oak",
+    "name": "Raiders",
+    "conference": "AFC",
+    "division": "West"
+  },
+  {
+    "id": "sd",
+    "name": "Chargers",
+    "conference": "AFC",
+    "division": "West"
+  },
+  {
+    "id": "dal",
+    "name": "Cowboys",
+    "conference": "NFC",
+    "division": "East"
+  },
+  {
+    "id": "nyg",
+    "name": "Giants",
+    "conference": "NFC",
+    "division": "East"
+  },
+  {
+    "id": "phi",
+    "name": "Eagles",
+    "conference": "NFC",
+    "division": "East"
+  },
+  {
+    "id": "was",
+    "name": "Redskins",
+    "conference": "NFC",
+    "division": "East"
+  },
+  {
+    "id": "chi",
+    "name": "Bears",
+    "conference": "NFC",
+    "division": "North"
+  },
+  {
+    "id": "det",
+    "name": "Lions",
+    "conference": "NFC",
+    "division": "North"
+  },
+  {
+    "id": "gb",
+    "name": "Packers",
+    "conference": "NFC",
+    "division": "North"
+  },
+  {
+    "id": "min",
+    "name": "Vikings",
+    "conference": "NFC",
+    "division": "North"
+  },
+  {
+    "id": "atl",
+    "name": "Falcons",
+    "conference": "NFC",
+    "division": "South"
+  },
+  {
+    "id": "car",
+    "name": "Panthers",
+    "conference": "NFC",
+    "division": "South"
+  },
+  {
+    "id": "no",
+    "name": "Saints",
+    "conference": "NFC",
+    "division": "South"
+  },
+  {
+    "id": "tb",
+    "name": "Buccaneers",
+    "conference": "NFC",
+    "division": "South"
+  },
+  {
+    "id": "ari",
+    "name": "Cardinals",
+    "conference": "NFC",
+    "division": "West"
+  },
+  {
+    "id": "sf",
+    "name": "49ers",
+    "conference": "NFC",
+    "division": "West"
+  },
+  {
+    "id": "sea",
+    "name": "Seahawks",
+    "conference": "NFC",
+    "division": "West"
+  },
+  {
+    "id": "stl",
+    "name": "Rams",
+    "conference": "NFC",
+    "division": "West"
+  }
+]
