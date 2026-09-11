@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from typing import Any, Hashable
+
+from pydantic.alias_generators import to_camel
+
 from fastapi import FastAPI, HTTPException, status
 
 from simleague.domain.models import (
@@ -9,6 +13,7 @@ from simleague.domain.models import (
     PlayerGameStatModel,
     PlayerModel,
     SeasonModel,
+    TeamGameStatsModel,
     TeamModel,
 )
 
@@ -20,32 +25,68 @@ app = FastAPI(
 
 # ---------------------------------------------------------------- storage
 # Keyed by id instead of a list: lookup is O(1) and mirrors a primary key.
-# Each of these becomes a table when you move to Postgres.
+#
+# The two stat stores are keyed by a tuple, mirroring the composite primary
+# keys in the schema: (game_id, player_id) and (game_id, team_id). That is
+# what makes "one row per player per game" structural rather than a rule
+# the application has to remember to enforce.
 
 leagues: dict[str, dict] = {}
 seasons: dict[str, dict] = {}
 teams: dict[str, dict] = {}
 games: dict[str, dict] = {}
 players: dict[str, dict] = {}
-player_game_stats: dict[str, dict] = {}
+player_game_stats: dict[tuple[str, str], dict] = {}
+team_game_stats: dict[tuple[str, str], dict] = {}
 
 
 # ---------------------------------------------------------------- helpers
 
 
-def require(store: dict[str, dict], key: str, label: str) -> dict:
+def require(store: dict[Any, dict], key: Hashable, label: str) -> dict:
     record = store.get(key)
     if record is None:
         raise HTTPException(status_code=404, detail=f"{label} not found")
     return record
 
 
-def reject_duplicate(store: dict[str, dict], key: str, label: str) -> None:
+def reject_duplicate(store: dict[Any, dict], key: Hashable, label: str) -> None:
     if key in store:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"{label} {key} already exists",
         )
+
+
+def check_matchup(game: dict, team_id: str, opponent_id: str, is_home: bool) -> None:
+    """Reject a stat line that claims a matchup the game does not support.
+
+    Mirrors the assert_stat_matchup trigger in the schema. opponent_id and
+    is_home are denormalized onto the stat row so splits queries are a
+    single index scan; this is what keeps that copy honest.
+    """
+    if team_id == game["homeTeamId"]:
+        expected_opponent, expected_home = game["awayTeamId"], True
+    elif team_id == game["awayTeamId"]:
+        expected_opponent, expected_home = game["homeTeamId"], False
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"team {team_id} did not play in game {game['id']}",
+        )
+
+    if opponent_id != expected_opponent or is_home != expected_home:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"game {game['id']}: team {team_id} plays {expected_opponent} "
+                f"with isHome={expected_home}"
+            ),
+        )
+
+
+def season_game_ids(season_id: str) -> set[str]:
+    return {g["id"] for g in games.values() if g["seasonId"] == season_id}
 
 
 # ---------------------------------------------------------------- root
@@ -187,53 +228,145 @@ def get_player(player_id: str) -> PlayerModel:
     return PlayerModel(**require(players, player_id, "Player"))
 
 
-# ---------------------------------------------------------------- stats
+# ----------------------------------------------------------- player stats
 
 
-@app.post("/stats", status_code=status.HTTP_201_CREATED)
-def create_stat_line(stat: PlayerGameStatModel) -> PlayerGameStatModel:
-    reject_duplicate(player_game_stats, stat.id, "Stat line")
-    require(games, stat.gameId, "Game")
-    require(players, stat.playerId, "Player")
-    player_game_stats[stat.id] = stat.model_dump()
+@app.post("/stats/players", status_code=status.HTTP_201_CREATED)
+def create_player_stat_line(stat: PlayerGameStatModel) -> PlayerGameStatModel:
+    game = require(games, stat.game_id, "Game")
+    require(players, stat.player_id, "Player")
+    require(teams, stat.team_id, "Team")
+    check_matchup(game, stat.team_id, stat.opponent_id, stat.is_home)
+    key = (stat.game_id, stat.player_id)
+    reject_duplicate(player_game_stats, key, "Stat line")
+    player_game_stats[key] = stat.model_dump()
     return stat
 
 
-@app.get("/stats")
-def list_stat_lines(
+@app.get("/stats/players")
+def list_player_stat_lines(
     gameId: str | None = None,
     playerId: str | None = None,
+    teamId: str | None = None,
+    opponentId: str | None = None,
     seasonId: str | None = None,
 ) -> list[PlayerGameStatModel]:
     rows = list(player_game_stats.values())
     if gameId is not None:
-        rows = [r for r in rows if r["gameId"] == gameId]
+        rows = [r for r in rows if r["game_id"] == gameId]
     if playerId is not None:
-        rows = [r for r in rows if r["playerId"] == playerId]
+        rows = [r for r in rows if r["player_id"] == playerId]
+    if teamId is not None:
+        rows = [r for r in rows if r["team_id"] == teamId]
+    if opponentId is not None:
+        rows = [r for r in rows if r["opponent_id"] == opponentId]
     if seasonId is not None:
-        season_game_ids = {
-            g["id"] for g in games.values() if g["seasonId"] == seasonId
-        }
-        rows = [r for r in rows if r["gameId"] in season_game_ids]
+        allowed = season_game_ids(seasonId)
+        rows = [r for r in rows if r["game_id"] in allowed]
     return [PlayerGameStatModel(**row) for row in rows]
 
 
-@app.get("/players/{player_id}/totals")
-def player_totals(player_id: str, seasonId: str | None = None) -> dict:
-    """Career totals, or one season's, by summing the join table.
+@app.get("/stats/players/{game_id}/{player_id}")
+def get_player_stat_line(game_id: str, player_id: str) -> PlayerGameStatModel:
+    row = require(player_game_stats, (game_id, player_id), "Stat line")
+    return PlayerGameStatModel(**row)
 
-    This is the payoff for the flat design: no tree walking, and in Postgres
-    it becomes a single GROUP BY.
+
+@app.delete(
+    "/stats/players/{game_id}/{player_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_player_stat_line(game_id: str, player_id: str) -> None:
+    require(player_game_stats, (game_id, player_id), "Stat line")
+    del player_game_stats[(game_id, player_id)]
+
+
+# ------------------------------------------------------------- team stats
+
+
+@app.post("/stats/teams", status_code=status.HTTP_201_CREATED)
+def create_team_stat_line(stat: TeamGameStatsModel) -> TeamGameStatsModel:
+    game = require(games, stat.game_id, "Game")
+    require(teams, stat.team_id, "Team")
+    check_matchup(game, stat.team_id, stat.opponent_id, stat.is_home)
+    key = (stat.game_id, stat.team_id)
+    reject_duplicate(team_game_stats, key, "Team stat line")
+    team_game_stats[key] = stat.model_dump()
+    return stat
+
+
+@app.get("/stats/teams")
+def list_team_stat_lines(
+    gameId: str | None = None,
+    teamId: str | None = None,
+    opponentId: str | None = None,
+    seasonId: str | None = None,
+) -> list[TeamGameStatsModel]:
+    rows = list(team_game_stats.values())
+    if gameId is not None:
+        rows = [r for r in rows if r["game_id"] == gameId]
+    if teamId is not None:
+        rows = [r for r in rows if r["team_id"] == teamId]
+    if opponentId is not None:
+        rows = [r for r in rows if r["opponent_id"] == opponentId]
+    if seasonId is not None:
+        allowed = season_game_ids(seasonId)
+        rows = [r for r in rows if r["game_id"] in allowed]
+    return [TeamGameStatsModel(**row) for row in rows]
+
+
+@app.get("/stats/teams/{game_id}/{team_id}")
+def get_team_stat_line(game_id: str, team_id: str) -> TeamGameStatsModel:
+    row = require(team_game_stats, (game_id, team_id), "Team stat line")
+    return TeamGameStatsModel(**row)
+
+
+@app.delete(
+    "/stats/teams/{game_id}/{team_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_team_stat_line(game_id: str, team_id: str) -> None:
+    require(team_game_stats, (game_id, team_id), "Team stat line")
+    del team_game_stats[(game_id, team_id)]
+
+
+# ---------------------------------------------------------------- totals
+
+
+@app.get("/players/{player_id}/totals")
+def player_totals(
+    player_id: str,
+    seasonId: str | None = None,
+    opponentId: str | None = None,
+) -> dict:
+    """Career totals, one season's, or one matchup's, by summing stat lines.
+
+    The opponentId filter is the reason opponent_id sits on the stat row
+    rather than being derived from the game on every query. In Postgres this
+    whole handler becomes a single GROUP BY.
     """
     require(players, player_id, "Player")
-    lines = list_stat_lines(playerId=player_id, seasonId=seasonId)
-    totals = {field: 0 for field in STAT_FIELDS}
+    lines = list_player_stat_lines(
+        playerId=player_id, seasonId=seasonId, opponentId=opponentId
+    )
+
+    # Seed each total from the model's own default so a Decimal field starts
+    # as a Decimal rather than an int.
+    blank = PlayerGameStatModel(
+        game_id="", player_id="", team_id="", opponent_id="x", is_home=True
+    )
+    totals: dict[str, Any] = {f: getattr(blank, f) for f in STAT_FIELDS}
+
     for line in lines:
         for field in STAT_FIELDS:
             totals[field] += getattr(line, field)
+
     return {
         "playerId": player_id,
         "seasonId": seasonId,
+        "opponentId": opponentId,
         "gamesPlayed": len(lines),
-        "totals": totals,
+        # camelCase to match every other response; STAT_FIELDS are the
+        # snake_case attribute names.
+        "totals": {to_camel(f): v for f, v in totals.items()},
     }

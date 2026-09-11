@@ -10,8 +10,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Literal
-
-from pydantic import BaseModel, field_validator
+from decimal import Decimal
+from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic.alias_generators import to_camel
 
 PlayoffRound = Literal["wildcard", "divisional", "conference", "superbowl"]
 Conference = Literal["AFC", "NFC"]
@@ -72,30 +73,149 @@ class PlayerModel(BaseModel):
 
 
 class PlayerGameStatModel(BaseModel):
-    """One row per player per game. This is the join table that makes players
-    work: a player is not owned by a game, he appears in many."""
+    """One row per player per game.
 
-    id: str
-    gameId: str
-    playerId: str
-    teamId: str
+    The primary key is (game_id, player_id) — there is no id column. That
+    composite key is what makes "one stat line per player per game" a
+    database guarantee rather than something the application has to check.
 
-    passAttempts: int = 0
-    passCompletions: int = 0
-    passYards: int = 0
-    passTouchdowns: int = 0
+    team_id is on the row rather than looked up from the player, because
+    players change teams. This is what keeps historical totals correct after
+    a trade.
+
+    Every stat defaults to 0, so a player who only recorded a tackle sends
+    two numbers and the other 66 fill themselves in.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    game_id: str
+    player_id: str
+    team_id: str
+    opponent_id: str
+    is_home: bool
+
+    # passing
+    pass_attempts: int = 0
+    pass_completions: int = 0
+    pass_yards: int = 0
+    pass_touchdowns: int = 0
     interceptions: int = 0
+    sacks_taken: int = 0
+    pass_long: int = 0
 
-    rushAttempts: int = 0
-    rushYards: int = 0
-    rushTouchdowns: int = 0
+    # rushing
+    rush_attempts: int = 0
+    rush_yards: int = 0
+    rush_touchdowns: int = 0
+    fumbles: int = 0
+    fumbles_lost: int = 0
+    broken_tackles: int = 0
+    yards_after_first_hit: int = 0
+    rushes_20_plus: int = 0
+    rush_long: int = 0
 
+    # receiving
+    targets: int = 0
     receptions: int = 0
-    receivingYards: int = 0
-    receivingTouchdowns: int = 0
+    receiving_yards: int = 0
+    receiving_touchdowns: int = 0
+    yards_after_catch: int = 0
+    drops: int = 0
+    reception_long: int = 0
 
-    tackles: int = 0
-    sacks: float = 0.0
+    # blocking
+    pancakes: int = 0
+    sacks_allowed: int = 0
+
+    # defense
+    solo_tackles: int = 0
+    assisted_tackles: int = 0
+    tackles_for_loss: int = 0
+    sacks: Decimal = Decimal("0.0")
+    interceptions_made: int = 0
+    interception_yards: int = 0
+    interception_long: int = 0
+    passes_defended: int = 0
+    forced_fumbles: int = 0
+    fumbles_recovered: int = 0
+    fumble_return_yards: int = 0
+    blocked_kicks: int = 0
+    safeties: int = 0
+    defensive_touchdowns: int = 0
+
+    # kicking
+    field_goals_made: int = 0
+    field_goals_attempted: int = 0
+    field_goal_long: int = 0
+    field_goals_blocked: int = 0
+    extra_points_made: int = 0
+    extra_points_attempted: int = 0
+    extra_points_blocked: int = 0
+    fga_29: int = 0
+    fgm_29: int = 0
+    fga_39: int = 0
+    fgm_39: int = 0
+    fga_49: int = 0
+    fgm_49: int = 0
+    fga_50_plus: int = 0
+    fgm_50_plus: int = 0
+    kickoffs: int = 0
+    touchbacks: int = 0
+
+    # punting
+    punts: int = 0
+    punt_yards: int = 0
+    punt_net_yards: int = 0
+    punts_blocked: int = 0
+    punts_inside_20: int = 0
+    punt_touchbacks: int = 0
+    punt_long: int = 0
+
+    # returns
+    kick_returns: int = 0
+    kick_return_yards: int = 0
+    kick_return_long: int = 0
+    kick_return_touchdowns: int = 0
+    punt_returns: int = 0
+    punt_return_yards: int = 0
+    punt_return_long: int = 0
+    punt_return_touchdowns: int = 0
+
+class TeamGameStatsModel(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    game_id: str
+    team_id: str
+    opponent_id: str
+    is_home: bool
+    points: int
+    first_downs: int = 0
+    third_down_att: int = 0
+    third_down_conv: int = 0
+    fourth_down_att: int = 0
+    fourth_down_conv: int = 0
+    total_yards: int = 0
+    total_offense: int = 0
+    pass_yards: int = 0
+    pass_attempts: int = 0
+    pass_completions: int = 0
+    rush_yards: int = 0
+    rush_attempts: int = 0
+    kick_return_yards: int = 0
+    punt_return_yards: int = 0
+    sacks_allowed: int = 0
+    sack_yards_lost: int = 0
+    turnovers: int = 0
+    interceptions_lost: int = 0
+    fumbles_lost: int = 0
+    penalties: int = 0
+    penalty_yards: int = 0
+    two_point_conversions_made: int = 0
+    two_point_conversions_attempted: int = 0
+    redzone_trips: int = 0
+    redzone_touchdowns: int = 0
+    redzone_field_goals: int = 0
+    time_of_possession: int = 0
 
 
 STAT_FIELDS = [
