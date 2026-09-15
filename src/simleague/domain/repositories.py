@@ -21,6 +21,7 @@ from simleague.domain.models import (
     LeagueModel,
     PlayerGameStatModel,
     PlayerModel,
+    PlayerSeasonModel,
     SeasonModel,
     TeamGameStatsModel,
     TeamModel,
@@ -61,6 +62,44 @@ class PlayerRepository(Protocol):
         season_id: str | None = None,
         position: str | None = None,
     ) -> list[PlayerModel]: ...
+
+    async def find_players_by_name(self, name: str) -> list[PlayerModel]: ...
+    """Exact name match, case-insensitive. Returns a list because names are
+    not unique — two players over nine seasons can share one, and silently
+    picking the first would merge two careers."""
+
+
+class PlayerSeasonRepository(Protocol):
+    """Roster membership: which team a player was on in a given season.
+
+    Keyed on (player_id, season_id), so one team per player per season. A
+    mid-season trade is not representable here and does not need to be —
+    each stat line carries its own team_id, which is what keeps game-level
+    attribution correct.
+
+    set_ rather than create_ because the operation is an upsert: assigning
+    a player to a team for a season he already has a row for should move
+    him, not fail.
+    """
+
+    async def set_player_season(
+        self, entry: PlayerSeasonModel
+    ) -> PlayerSeasonModel: ...
+
+    async def get_player_season(
+        self, player_id: str, season_id: str
+    ) -> PlayerSeasonModel | None: ...
+
+    async def delete_player_season(
+        self, player_id: str, season_id: str
+    ) -> bool: ...
+
+    async def list_player_seasons(
+        self,
+        player_id: str | None = None,
+        season_id: str | None = None,
+        team_id: str | None = None,
+    ) -> list[PlayerSeasonModel]: ...
 
 
 class GameRepository(Protocol):

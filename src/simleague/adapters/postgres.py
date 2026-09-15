@@ -23,6 +23,7 @@ from simleague.domain.models import (
     LeagueModel,
     PlayerGameStatModel,
     PlayerModel,
+    PlayerSeasonModel,
     SeasonModel,
     TeamGameStatsModel,
     TeamModel,
@@ -66,9 +67,12 @@ GAME_COLUMNS = list(GAME_FIELD_TO_COLUMN.values())
 # The stat models' field names are their column names, so the column list
 # is derived rather than written out. Add a column to the model and the
 # migration, and this follows automatically.
+PLAYER_COLUMNS = list(PlayerModel.model_fields)
+PLAYER_SEASON_COLUMNS = list(PlayerSeasonModel.model_fields)
 PLAYER_STAT_COLUMNS = list(PlayerGameStatModel.model_fields)
 TEAM_STAT_COLUMNS = list(TeamGameStatsModel.model_fields)
 
+PLAYER_SEASON_KEY = ("player_id", "season_id")
 PLAYER_STAT_KEY = ("game_id", "player_id")
 TEAM_STAT_KEY = ("game_id", "team_id")
 
@@ -281,18 +285,10 @@ class PostgresPlayerRepository:
         self.pool = pool
 
     async def create_player(self, player: PlayerModel) -> PlayerModel:
-        # PlayerModel still carries teamId, but the schema moved team
-        # membership to player_seasons — a player's team is per-season, not a
-        # property of the player. teamId is dropped on the way in.
-        row = {
-            "id": player.id,
-            "name": player.name,
-            "position": player.position,
-        }
-        sql = upsert_sql("players", ["id", "name", "position"], ("id",))
+        sql = upsert_sql("players", PLAYER_COLUMNS, ("id",))
         async with self.pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(sql, row)
+                await cur.execute(sql, player.model_dump())
                 created = await cur.fetchone()
         assert created is not None
         return PlayerModel(**created)
@@ -344,6 +340,100 @@ class PostgresPlayerRepository:
                 await cur.execute(sql, params)
                 rows = await cur.fetchall()
         return [PlayerModel(**row) for row in rows]
+
+
+    async def find_players_by_name(self, name: str) -> list[PlayerModel]:
+        # lower() on both sides so "p. manning" matches "P. Manning".
+        # Worth an index if this ever gets slow:
+        #   CREATE INDEX players_name_lower_idx ON players (lower(name));
+        async with self.pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    "SELECT * FROM players WHERE lower(name) = lower(%s) "
+                    "ORDER BY id",
+                    (name,),
+                )
+                rows = await cur.fetchall()
+        return [PlayerModel(**row) for row in rows]
+
+
+# --------------------------------------------------------- player seasons
+
+
+class PostgresPlayerSeasonRepository:
+    """Satisfies domain.repositories.PlayerSeasonRepository.
+
+    Roster membership. This is what autocomplete queries: "who was on
+    Indianapolis in season 4" is a lookup here, not on players.
+    """
+
+    def __init__(self, pool: AsyncConnectionPool) -> None:
+        self.pool = pool
+
+    async def set_player_season(
+        self, entry: PlayerSeasonModel
+    ) -> PlayerSeasonModel:
+        sql = upsert_sql(
+            "player_seasons", PLAYER_SEASON_COLUMNS, PLAYER_SEASON_KEY
+        )
+        async with self.pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(sql, entry.model_dump())
+                row = await cur.fetchone()
+        assert row is not None
+        return PlayerSeasonModel(**row)
+
+    async def get_player_season(
+        self, player_id: str, season_id: str
+    ) -> PlayerSeasonModel | None:
+        async with self.pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    "SELECT * FROM player_seasons "
+                    "WHERE player_id = %s AND season_id = %s",
+                    (player_id, season_id),
+                )
+                row = await cur.fetchone()
+        return PlayerSeasonModel(**row) if row else None
+
+    async def delete_player_season(
+        self, player_id: str, season_id: str
+    ) -> bool:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "DELETE FROM player_seasons "
+                    "WHERE player_id = %s AND season_id = %s",
+                    (player_id, season_id),
+                )
+                return cur.rowcount > 0
+
+    async def list_player_seasons(
+        self,
+        player_id: str | None = None,
+        season_id: str | None = None,
+        team_id: str | None = None,
+    ) -> list[PlayerSeasonModel]:
+        conditions: list[str] = []
+        params: dict[str, Any] = {}
+        for column, value in (
+            ("player_id", player_id),
+            ("season_id", season_id),
+            ("team_id", team_id),
+        ):
+            if value is not None:
+                conditions.append(f"{column} = %({column})s")
+                params[column] = value
+
+        sql = (
+            f"SELECT * FROM player_seasons {where_clause(conditions)} "
+            f"ORDER BY season_id::int, team_id, player_id"
+        )
+        async with self.pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(sql, params)
+                rows = await cur.fetchall()
+        return [PlayerSeasonModel(**row) for row in rows]
 
 
 # ------------------------------------------------------------------ games

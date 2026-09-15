@@ -9,8 +9,9 @@ web framework.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Literal
 from decimal import Decimal
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, field_validator
 from pydantic.alias_generators import to_camel
 
@@ -66,10 +67,71 @@ class GameModel(BaseModel):
 
 
 class PlayerModel(BaseModel):
+    """A player's unchanging facts.
+
+    Deliberately no teamId. A player does not have a team — he has a team
+    in a season (see PlayerSeasonModel) and a team in a given game (the
+    team_id on each stat line). Collapsing that into one field would make
+    "his Colts years" unanswerable the first time he is traded.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
     id: str
     name: str
     position: str
-    teamId: str | None = None
+
+
+class ResolvePlayerRequest(BaseModel):
+    """Find a player by name, or create him, in one call.
+
+    Entering a box score for a season with no players yet would otherwise
+    mean three round trips and two ids for the form to track. This collapses
+    it: type a name, get back a player who is on the right roster.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    name: str
+    season_id: str
+    team_id: str
+    position: str
+
+    # Set when the caller has already disambiguated — either by picking one
+    # of the candidates from a 409, or by deciding none of them is the right
+    # man and a new record is wanted.
+    player_id: str | None = None
+    force_new: bool = False
+
+
+class ResolvedPlayer(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    player: PlayerModel
+    season: PlayerSeasonModel
+    created: bool
+
+
+class PlayerSeasonModel(BaseModel):
+    """Roster membership: which team a player was on in a given season.
+
+    Keyed on (player_id, season_id), matching the table. That means one
+    team per player per season — a mid-season trade is not representable
+    here, and does not need to be: each stat line carries its own team_id,
+    which is what keeps game-level attribution correct regardless of what
+    this row says.
+
+    This is the table autocomplete queries. "Who was on Indianapolis in
+    season 4" is a lookup here, not on players.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    player_id: str
+    season_id: str
+    team_id: str
+    position: str | None = None
+    jersey_number: int | None = None
 
 
 class PlayerGameStatModel(BaseModel):
@@ -182,8 +244,10 @@ class PlayerGameStatModel(BaseModel):
     punt_return_long: int = 0
     punt_return_touchdowns: int = 0
 
+
 class TeamGameStatsModel(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
     game_id: str
     team_id: str
     opponent_id: str
@@ -218,8 +282,15 @@ class TeamGameStatsModel(BaseModel):
     time_of_possession: int = 0
 
 
+# Everything on a stat line that is a number to be summed. Defined by
+# excluding the five identity fields rather than by filtering on type: a
+# type filter silently drops sacks the moment it becomes Decimal.
+STAT_IDENTITY_FIELDS = {
+    "game_id", "player_id", "team_id", "opponent_id", "is_home",
+}
+
 STAT_FIELDS = [
     name
-    for name, field in PlayerGameStatModel.model_fields.items()
-    if field.annotation in (int, float)
+    for name in PlayerGameStatModel.model_fields
+    if name not in STAT_IDENTITY_FIELDS
 ]

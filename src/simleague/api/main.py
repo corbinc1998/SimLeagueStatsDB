@@ -1,17 +1,38 @@
+"""HTTP layer.
+
+Handlers translate between HTTP and the domain and do nothing else. They
+depend on the repository ports, never on a concrete adapter — there is no
+psycopg import in this file and no SQL. Swapping storage is a change in
+dependencies.py, not here.
+
+Repositories return None for a miss rather than raising. Turning that into
+a 404 is an HTTP decision, so it happens here.
+"""
+
 from __future__ import annotations
 
-from typing import Any, Hashable
-
-from pydantic.alias_generators import to_camel
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, status
+from pydantic.alias_generators import to_camel
 
+from simleague.api.dependencies import (
+    GameRepo,
+    LeagueRepo,
+    PlayerRepo,
+    PlayerSeasonRepo,
+    PlayerStatRepo,
+    SeasonRepo,
+    TeamRepo,
+    TeamStatRepo,
+    lifespan,
+)
 from simleague.domain.models import (
-    STAT_FIELDS,
     GameModel,
     LeagueModel,
     PlayerGameStatModel,
     PlayerModel,
+    PlayerSeasonModel,
     SeasonModel,
     TeamGameStatsModel,
     TeamModel,
@@ -21,79 +42,52 @@ app = FastAPI(
     title="SimLeague",
     version="0.1.0",
     description="Simulation results, stats, and standings",
+    lifespan=lifespan,
 )
-
-# ---------------------------------------------------------------- storage
-# Keyed by id instead of a list: lookup is O(1) and mirrors a primary key.
-#
-# The two stat stores are keyed by a tuple, mirroring the composite primary
-# keys in the schema: (game_id, player_id) and (game_id, team_id). That is
-# what makes "one row per player per game" structural rather than a rule
-# the application has to remember to enforce.
-
-leagues: dict[str, dict] = {}
-seasons: dict[str, dict] = {}
-teams: dict[str, dict] = {}
-games: dict[str, dict] = {}
-players: dict[str, dict] = {}
-player_game_stats: dict[tuple[str, str], dict] = {}
-team_game_stats: dict[tuple[str, str], dict] = {}
 
 
 # ---------------------------------------------------------------- helpers
 
 
-def require(store: dict[Any, dict], key: Hashable, label: str) -> dict:
-    record = store.get(key)
-    if record is None:
-        raise HTTPException(status_code=404, detail=f"{label} not found")
-    return record
+def not_found(label: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND, detail=f"{label} not found"
+    )
 
 
-def reject_duplicate(store: dict[Any, dict], key: Hashable, label: str) -> None:
-    if key in store:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"{label} {key} already exists",
-        )
-
-
-def check_matchup(game: dict, team_id: str, opponent_id: str, is_home: bool) -> None:
+def check_matchup(
+    game: GameModel, team_id: str, opponent_id: str, is_home: bool
+) -> None:
     """Reject a stat line that claims a matchup the game does not support.
 
-    Mirrors the assert_stat_matchup trigger in the schema. opponent_id and
-    is_home are denormalized onto the stat row so splits queries are a
-    single index scan; this is what keeps that copy honest.
+    The database has the same rule as a trigger. Checking it here too means
+    the client gets a clear 422 instead of a 500 wrapping a database error.
     """
-    if team_id == game["homeTeamId"]:
-        expected_opponent, expected_home = game["awayTeamId"], True
-    elif team_id == game["awayTeamId"]:
-        expected_opponent, expected_home = game["homeTeamId"], False
+    if team_id == game.homeTeamId:
+        expected_opponent, expected_home = game.awayTeamId, True
+    elif team_id == game.awayTeamId:
+        expected_opponent, expected_home = game.homeTeamId, False
     else:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"team {team_id} did not play in game {game['id']}",
+            detail=f"team {team_id} did not play in game {game.id}",
         )
 
     if opponent_id != expected_opponent or is_home != expected_home:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
-                f"game {game['id']}: team {team_id} plays {expected_opponent} "
+                f"game {game.id}: team {team_id} plays {expected_opponent} "
                 f"with isHome={expected_home}"
             ),
         )
-
-
-def season_game_ids(season_id: str) -> set[str]:
-    return {g["id"] for g in games.values() if g["seasonId"] == season_id}
 
 
 # ---------------------------------------------------------------- root
 
 
 @app.get("/")
-def root() -> dict[str, str]:
+async def root() -> dict[str, str]:
     return {"service": "SimLeague", "docs": "/docs"}
 
 
@@ -101,272 +95,368 @@ def root() -> dict[str, str]:
 
 
 @app.post("/leagues", status_code=status.HTTP_201_CREATED)
-def create_league(league: LeagueModel) -> LeagueModel:
-    reject_duplicate(leagues, league.id, "League")
-    leagues[league.id] = league.model_dump()
-    return league
+async def create_league(league: LeagueModel, repo: LeagueRepo) -> LeagueModel:
+    return await repo.create_league(league)
 
 
 @app.get("/leagues")
-def list_leagues() -> list[LeagueModel]:
-    return [LeagueModel(**row) for row in leagues.values()]
+async def list_leagues(repo: LeagueRepo) -> list[LeagueModel]:
+    return await repo.list_leagues()
 
 
 @app.get("/leagues/{league_id}")
-def get_league(league_id: str) -> LeagueModel:
-    return LeagueModel(**require(leagues, league_id, "League"))
+async def get_league(league_id: str, repo: LeagueRepo) -> LeagueModel:
+    league = await repo.get_league(league_id)
+    if league is None:
+        raise not_found("League")
+    return league
 
 
 # ---------------------------------------------------------------- seasons
 
 
 @app.post("/seasons", status_code=status.HTTP_201_CREATED)
-def create_season(season: SeasonModel) -> SeasonModel:
-    reject_duplicate(seasons, season.id, "Season")
-    require(leagues, season.leagueId, "League")
-    seasons[season.id] = season.model_dump()
-    return season
+async def create_season(
+    season: SeasonModel, repo: SeasonRepo, leagues: LeagueRepo
+) -> SeasonModel:
+    if await leagues.get_league(season.leagueId) is None:
+        raise not_found("League")
+    return await repo.create_season(season)
 
 
 @app.get("/seasons")
-def list_seasons(leagueId: str | None = None) -> list[SeasonModel]:
-    rows = list(seasons.values())
-    if leagueId is not None:
-        rows = [r for r in rows if r["leagueId"] == leagueId]
-    return [SeasonModel(**row) for row in rows]
+async def list_seasons(
+    repo: SeasonRepo, leagueId: str | None = None
+) -> list[SeasonModel]:
+    return await repo.list_seasons(league_id=leagueId)
 
 
 @app.get("/seasons/{season_id}")
-def get_season(season_id: str) -> SeasonModel:
-    return SeasonModel(**require(seasons, season_id, "Season"))
+async def get_season(season_id: str, repo: SeasonRepo) -> SeasonModel:
+    season = await repo.get_season(season_id)
+    if season is None:
+        raise not_found("Season")
+    return season
 
 
 # ---------------------------------------------------------------- teams
 
 
 @app.post("/teams", status_code=status.HTTP_201_CREATED)
-def create_team(team: TeamModel) -> TeamModel:
-    reject_duplicate(teams, team.id, "Team")
-    teams[team.id] = team.model_dump()
-    return team
+async def create_team(team: TeamModel, repo: TeamRepo) -> TeamModel:
+    return await repo.create_team(team)
 
 
 @app.get("/teams")
-def list_teams() -> list[TeamModel]:
-    return [TeamModel(**row) for row in teams.values()]
+async def list_teams(
+    repo: TeamRepo,
+    conference: str | None = None,
+    division: str | None = None,
+) -> list[TeamModel]:
+    return await repo.list_teams(conference=conference, division=division)
 
 
 @app.get("/teams/{team_id}")
-def get_team(team_id: str) -> TeamModel:
-    return TeamModel(**require(teams, team_id, "Team"))
+async def get_team(team_id: str, repo: TeamRepo) -> TeamModel:
+    team = await repo.get_team(team_id)
+    if team is None:
+        raise not_found("Team")
+    return team
 
 
 # ---------------------------------------------------------------- games
 
 
 @app.post("/games", status_code=status.HTTP_201_CREATED)
-def create_game(game: GameModel) -> GameModel:
-    reject_duplicate(games, game.id, "Game")
-    games[game.id] = game.model_dump()
-    return game
+async def create_game(game: GameModel, repo: GameRepo) -> GameModel:
+    return await repo.create_game(game)
 
 
 @app.get("/games")
-def list_games(
+async def list_games(
+    repo: GameRepo,
     seasonId: str | None = None,
     week: int | None = None,
     teamId: str | None = None,
     isPlayoff: bool | None = None,
 ) -> list[GameModel]:
-    rows = list(games.values())
-    if seasonId is not None:
-        rows = [r for r in rows if r["seasonId"] == seasonId]
-    if week is not None:
-        rows = [r for r in rows if r["week"] == week]
-    if isPlayoff is not None:
-        rows = [r for r in rows if r["isPlayoff"] == isPlayoff]
-    if teamId is not None:
-        rows = [
-            r for r in rows
-            if r["homeTeamId"] == teamId or r["awayTeamId"] == teamId
-        ]
-    rows.sort(key=lambda r: (r["seasonId"], r["week"], r["date"]))
-    return [GameModel(**row) for row in rows]
+    # Query parameters are camelCase to match the JSON; the port speaks
+    # snake_case. The translation happens here, at the boundary.
+    return await repo.list_games(
+        season_id=seasonId,
+        week=week,
+        team_id=teamId,
+        is_playoff=isPlayoff,
+    )
 
 
 @app.get("/games/{game_id}")
-def get_game(game_id: str) -> GameModel:
-    return GameModel(**require(games, game_id, "Game"))
+async def get_game(game_id: str, repo: GameRepo) -> GameModel:
+    game = await repo.get_game(game_id)
+    if game is None:
+        raise not_found("Game")
+    return game
 
 
 @app.delete("/games/{game_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_game(game_id: str) -> None:
-    require(games, game_id, "Game")
-    del games[game_id]
+async def delete_game(game_id: str, repo: GameRepo) -> None:
+    # The repository reports whether a row was actually removed, which is
+    # what distinguishes 204 from 404 without a separate lookup first.
+    if not await repo.delete_game(game_id):
+        raise not_found("Game")
 
 
 # ---------------------------------------------------------------- players
 
 
 @app.post("/players", status_code=status.HTTP_201_CREATED)
-def create_player(player: PlayerModel) -> PlayerModel:
-    reject_duplicate(players, player.id, "Player")
-    players[player.id] = player.model_dump()
-    return player
+async def create_player(player: PlayerModel, repo: PlayerRepo) -> PlayerModel:
+    return await repo.create_player(player)
 
 
 @app.get("/players")
-def list_players(teamId: str | None = None) -> list[PlayerModel]:
-    rows = list(players.values())
-    if teamId is not None:
-        rows = [r for r in rows if r["teamId"] == teamId]
-    return [PlayerModel(**row) for row in rows]
+async def list_players(
+    repo: PlayerRepo,
+    teamId: str | None = None,
+    seasonId: str | None = None,
+    position: str | None = None,
+) -> list[PlayerModel]:
+    return await repo.list_players(
+        team_id=teamId, season_id=seasonId, position=position
+    )
 
 
 @app.get("/players/{player_id}")
-def get_player(player_id: str) -> PlayerModel:
-    return PlayerModel(**require(players, player_id, "Player"))
+async def get_player(player_id: str, repo: PlayerRepo) -> PlayerModel:
+    player = await repo.get_player(player_id)
+    if player is None:
+        raise not_found("Player")
+    return player
+
+
+# --------------------------------------------------------- player seasons
+
+
+@app.put("/players/{player_id}/seasons/{season_id}")
+async def set_player_season(
+    player_id: str,
+    season_id: str,
+    entry: PlayerSeasonModel,
+    repo: PlayerSeasonRepo,
+    players: PlayerRepo,
+    seasons: SeasonRepo,
+    teams: TeamRepo,
+) -> PlayerSeasonModel:
+    """Put a player on a team's roster for a season.
+
+    PUT rather than POST because it is idempotent: assigning a player who
+    already has a row for that season moves him rather than failing.
+    """
+    if entry.player_id != player_id or entry.season_id != season_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="body must match the path player and season",
+        )
+    if await players.get_player(player_id) is None:
+        raise not_found("Player")
+    if await seasons.get_season(season_id) is None:
+        raise not_found("Season")
+    if await teams.get_team(entry.team_id) is None:
+        raise not_found("Team")
+    return await repo.set_player_season(entry)
+
+
+@app.get("/player-seasons")
+async def list_player_seasons(
+    repo: PlayerSeasonRepo,
+    playerId: str | None = None,
+    seasonId: str | None = None,
+    teamId: str | None = None,
+) -> list[PlayerSeasonModel]:
+    return await repo.list_player_seasons(
+        player_id=playerId, season_id=seasonId, team_id=teamId
+    )
+
+
+@app.delete(
+    "/players/{player_id}/seasons/{season_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_player_season(
+    player_id: str, season_id: str, repo: PlayerSeasonRepo
+) -> None:
+    if not await repo.delete_player_season(player_id, season_id):
+        raise not_found("Roster entry")
 
 
 # ----------------------------------------------------------- player stats
 
 
 @app.post("/stats/players", status_code=status.HTTP_201_CREATED)
-def create_player_stat_line(stat: PlayerGameStatModel) -> PlayerGameStatModel:
-    game = require(games, stat.game_id, "Game")
-    require(players, stat.player_id, "Player")
-    require(teams, stat.team_id, "Team")
+async def create_player_stat_line(
+    stat: PlayerGameStatModel,
+    repo: PlayerStatRepo,
+    games: GameRepo,
+    players: PlayerRepo,
+    teams: TeamRepo,
+) -> PlayerGameStatModel:
+    game = await games.get_game(stat.game_id)
+    if game is None:
+        raise not_found("Game")
+    if await players.get_player(stat.player_id) is None:
+        raise not_found("Player")
+    if await teams.get_team(stat.team_id) is None:
+        raise not_found("Team")
     check_matchup(game, stat.team_id, stat.opponent_id, stat.is_home)
-    key = (stat.game_id, stat.player_id)
-    reject_duplicate(player_game_stats, key, "Stat line")
-    player_game_stats[key] = stat.model_dump()
-    return stat
+    return await repo.create_player_stat_line(stat)
 
 
 @app.get("/stats/players")
-def list_player_stat_lines(
+async def list_player_stat_lines(
+    repo: PlayerStatRepo,
     gameId: str | None = None,
     playerId: str | None = None,
     teamId: str | None = None,
     opponentId: str | None = None,
     seasonId: str | None = None,
 ) -> list[PlayerGameStatModel]:
-    rows = list(player_game_stats.values())
-    if gameId is not None:
-        rows = [r for r in rows if r["game_id"] == gameId]
-    if playerId is not None:
-        rows = [r for r in rows if r["player_id"] == playerId]
-    if teamId is not None:
-        rows = [r for r in rows if r["team_id"] == teamId]
-    if opponentId is not None:
-        rows = [r for r in rows if r["opponent_id"] == opponentId]
-    if seasonId is not None:
-        allowed = season_game_ids(seasonId)
-        rows = [r for r in rows if r["game_id"] in allowed]
-    return [PlayerGameStatModel(**row) for row in rows]
+    return await repo.list_player_stat_lines(
+        game_id=gameId,
+        player_id=playerId,
+        team_id=teamId,
+        opponent_id=opponentId,
+        season_id=seasonId,
+    )
 
 
 @app.get("/stats/players/{game_id}/{player_id}")
-def get_player_stat_line(game_id: str, player_id: str) -> PlayerGameStatModel:
-    row = require(player_game_stats, (game_id, player_id), "Stat line")
-    return PlayerGameStatModel(**row)
+async def get_player_stat_line(
+    game_id: str, player_id: str, repo: PlayerStatRepo
+) -> PlayerGameStatModel:
+    stat = await repo.get_player_stat_line(game_id, player_id)
+    if stat is None:
+        raise not_found("Stat line")
+    return stat
 
 
 @app.delete(
     "/stats/players/{game_id}/{player_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-def delete_player_stat_line(game_id: str, player_id: str) -> None:
-    require(player_game_stats, (game_id, player_id), "Stat line")
-    del player_game_stats[(game_id, player_id)]
+async def delete_player_stat_line(
+    game_id: str, player_id: str, repo: PlayerStatRepo
+) -> None:
+    if not await repo.delete_player_stat_line(game_id, player_id):
+        raise not_found("Stat line")
 
 
 # ------------------------------------------------------------- team stats
 
 
 @app.post("/stats/teams", status_code=status.HTTP_201_CREATED)
-def create_team_stat_line(stat: TeamGameStatsModel) -> TeamGameStatsModel:
-    game = require(games, stat.game_id, "Game")
-    require(teams, stat.team_id, "Team")
+async def create_team_stat_line(
+    stat: TeamGameStatsModel,
+    repo: TeamStatRepo,
+    games: GameRepo,
+    teams: TeamRepo,
+) -> TeamGameStatsModel:
+    game = await games.get_game(stat.game_id)
+    if game is None:
+        raise not_found("Game")
+    if await teams.get_team(stat.team_id) is None:
+        raise not_found("Team")
     check_matchup(game, stat.team_id, stat.opponent_id, stat.is_home)
-    key = (stat.game_id, stat.team_id)
-    reject_duplicate(team_game_stats, key, "Team stat line")
-    team_game_stats[key] = stat.model_dump()
-    return stat
+    return await repo.create_team_stat_line(stat)
 
 
 @app.get("/stats/teams")
-def list_team_stat_lines(
+async def list_team_stat_lines(
+    repo: TeamStatRepo,
     gameId: str | None = None,
     teamId: str | None = None,
     opponentId: str | None = None,
     seasonId: str | None = None,
 ) -> list[TeamGameStatsModel]:
-    rows = list(team_game_stats.values())
-    if gameId is not None:
-        rows = [r for r in rows if r["game_id"] == gameId]
-    if teamId is not None:
-        rows = [r for r in rows if r["team_id"] == teamId]
-    if opponentId is not None:
-        rows = [r for r in rows if r["opponent_id"] == opponentId]
-    if seasonId is not None:
-        allowed = season_game_ids(seasonId)
-        rows = [r for r in rows if r["game_id"] in allowed]
-    return [TeamGameStatsModel(**row) for row in rows]
+    return await repo.list_team_stat_lines(
+        game_id=gameId,
+        team_id=teamId,
+        opponent_id=opponentId,
+        season_id=seasonId,
+    )
 
 
 @app.get("/stats/teams/{game_id}/{team_id}")
-def get_team_stat_line(game_id: str, team_id: str) -> TeamGameStatsModel:
-    row = require(team_game_stats, (game_id, team_id), "Team stat line")
-    return TeamGameStatsModel(**row)
+async def get_team_stat_line(
+    game_id: str, team_id: str, repo: TeamStatRepo
+) -> TeamGameStatsModel:
+    stat = await repo.get_team_stat_line(game_id, team_id)
+    if stat is None:
+        raise not_found("Stat line")
+    return stat
 
 
 @app.delete(
     "/stats/teams/{game_id}/{team_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-def delete_team_stat_line(game_id: str, team_id: str) -> None:
-    require(team_game_stats, (game_id, team_id), "Team stat line")
-    del team_game_stats[(game_id, team_id)]
+async def delete_team_stat_line(
+    game_id: str, team_id: str, repo: TeamStatRepo
+) -> None:
+    if not await repo.delete_team_stat_line(game_id, team_id):
+        raise not_found("Stat line")
 
 
 # ---------------------------------------------------------------- totals
 
 
 @app.get("/players/{player_id}/totals")
-def player_totals(
+async def player_totals(
     player_id: str,
+    repo: PlayerStatRepo,
+    players: PlayerRepo,
     seasonId: str | None = None,
     opponentId: str | None = None,
-) -> dict:
-    """Career totals, one season's, or one matchup's, by summing stat lines.
+) -> dict[str, Any]:
+    """Career totals, one season's, or one matchup's.
 
-    The opponentId filter is the reason opponent_id sits on the stat row
-    rather than being derived from the game on every query. In Postgres this
-    whole handler becomes a single GROUP BY.
+    The summing happens in the adapter — a single GROUP BY against Postgres
+    rather than shipping every row here to be added up.
     """
-    require(players, player_id, "Player")
-    lines = list_player_stat_lines(
-        playerId=player_id, seasonId=seasonId, opponentId=opponentId
+    if await players.get_player(player_id) is None:
+        raise not_found("Player")
+
+    games_played, totals = await repo.player_totals(
+        player_id, season_id=seasonId, opponent_id=opponentId
     )
-
-    # Seed each total from the model's own default so a Decimal field starts
-    # as a Decimal rather than an int.
-    blank = PlayerGameStatModel(
-        game_id="", player_id="", team_id="", opponent_id="x", is_home=True
-    )
-    totals: dict[str, Any] = {f: getattr(blank, f) for f in STAT_FIELDS}
-
-    for line in lines:
-        for field in STAT_FIELDS:
-            totals[field] += getattr(line, field)
-
     return {
         "playerId": player_id,
         "seasonId": seasonId,
         "opponentId": opponentId,
-        "gamesPlayed": len(lines),
-        # camelCase to match every other response; STAT_FIELDS are the
-        # snake_case attribute names.
+        "gamesPlayed": games_played,
+        # STAT_FIELDS are snake_case attribute names; every other response
+        # in this API is camelCase.
+        "totals": {to_camel(f): v for f, v in totals.items()},
+    }
+
+
+@app.get("/teams/{team_id}/totals")
+async def team_totals(
+    team_id: str,
+    repo: TeamStatRepo,
+    teams: TeamRepo,
+    seasonId: str | None = None,
+    opponentId: str | None = None,
+) -> dict[str, Any]:
+    if await teams.get_team(team_id) is None:
+        raise not_found("Team")
+
+    games_played, totals = await repo.team_totals(
+        team_id, season_id=seasonId, opponent_id=opponentId
+    )
+    return {
+        "teamId": team_id,
+        "seasonId": seasonId,
+        "opponentId": opponentId,
+        "gamesPlayed": games_played,
         "totals": {to_camel(f): v for f, v in totals.items()},
     }
