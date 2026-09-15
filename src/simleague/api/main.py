@@ -11,9 +11,10 @@ a 404 is an HTTP decision, so it happens here.
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Response, status
 from pydantic.alias_generators import to_camel
 
 from simleague.api.dependencies import (
@@ -33,6 +34,8 @@ from simleague.domain.models import (
     PlayerGameStatModel,
     PlayerModel,
     PlayerSeasonModel,
+    ResolvedPlayer,
+    ResolvePlayerRequest,
     SeasonModel,
     TeamGameStatsModel,
     TeamModel,
@@ -232,6 +235,87 @@ async def get_player(player_id: str, repo: PlayerRepo) -> PlayerModel:
     if player is None:
         raise not_found("Player")
     return player
+
+
+@app.post("/players/resolve")
+async def resolve_player(
+    request: ResolvePlayerRequest,
+    players: PlayerRepo,
+    rosters: PlayerSeasonRepo,
+    seasons: SeasonRepo,
+    teams: TeamRepo,
+    response: Response,
+) -> ResolvedPlayer:
+    """Find a player by name or create him, and put him on a roster.
+
+    The entry form calls this when a typed name does not match anything in
+    the autocomplete list. One call instead of three, and the form never has
+    to invent a player id.
+
+    Ambiguity is surfaced, not guessed at: if the name matches more than one
+    existing player, this returns 409 with the candidates so the caller can
+    ask which one. The caller then retries with playerId set, or with
+    forceNew to say none of them is the right man.
+    """
+    if await seasons.get_season(request.season_id) is None:
+        raise not_found("Season")
+    if await teams.get_team(request.team_id) is None:
+        raise not_found("Team")
+
+    player: PlayerModel | None = None
+    created = False
+
+    if request.player_id is not None:
+        # The caller already disambiguated.
+        player = await players.get_player(request.player_id)
+        if player is None:
+            raise not_found("Player")
+    elif not request.force_new:
+        matches = await players.find_players_by_name(request.name)
+        if len(matches) == 1:
+            player = matches[0]
+        elif len(matches) > 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": (
+                        f"{len(matches)} players are named {request.name!r}. "
+                        "Retry with playerId to pick one, or forceNew to "
+                        "create another."
+                    ),
+                    "candidates": [
+                        p.model_dump(by_alias=True) for p in matches
+                    ],
+                },
+            )
+
+    if player is None:
+        # uuid rather than a slug: names are not unique, and a slug would
+        # collide exactly where the data is already ambiguous.
+        player = await players.create_player(
+            PlayerModel(
+                id=str(uuid.uuid4()),
+                name=request.name.strip(),
+                position=request.position,
+            )
+        )
+        created = True
+
+    # Upsert, so resolving the same player twice in a session is harmless
+    # and a mid-season correction just moves him.
+    season = await rosters.set_player_season(
+        PlayerSeasonModel(
+            player_id=player.id,
+            season_id=request.season_id,
+            team_id=request.team_id,
+            position=request.position,
+        )
+    )
+
+    response.status_code = (
+        status.HTTP_201_CREATED if created else status.HTTP_200_OK
+    )
+    return ResolvedPlayer(player=player, season=season, created=created)
 
 
 # --------------------------------------------------------- player seasons
