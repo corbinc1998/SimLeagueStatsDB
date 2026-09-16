@@ -49,15 +49,21 @@ def call(
     request = urllib.request.Request(url, data=data, method=method)
     if data is not None:
         request.add_header("Content-Type", "application/json")
+    def decode(raw: bytes) -> Any:
+        # A 500 comes back as plain text, not JSON. Returning the raw body
+        # instead of raising keeps the failure readable.
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return raw.decode(errors="replace").strip()
+
     try:
         with urllib.request.urlopen(request) as response:
-            raw = response.read()
-            body = json.loads(raw) if raw else None
-            return response.status, body
+            return response.status, decode(response.read())
     except urllib.error.HTTPError as error:
-        raw = error.read()
-        body = json.loads(raw) if raw else None
-        return error.code, body
+        return error.code, decode(error.read())
     except urllib.error.URLError as error:
         print(f"\ncannot reach {BASE} — is uvicorn running?\n  {error.reason}")
         raise SystemExit(1) from error
@@ -254,6 +260,8 @@ def main() -> int:
 
     status, tt = call("GET", f"/teams/{home}/totals?seasonId=8")
     failures += not expect(f"GET /teams/{home}/totals?seasonId=8", status, 200)
+    if status != 200:
+        print(f"       {tt}")
     if status == 200:
         print(f"       gamesPlayed {tt['gamesPlayed']}  "
               f"points {tt['totals']['points']}")

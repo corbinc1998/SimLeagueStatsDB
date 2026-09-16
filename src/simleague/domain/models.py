@@ -294,3 +294,11 @@ STAT_FIELDS = [
     for name in PlayerGameStatModel.model_fields
     if name not in STAT_IDENTITY_FIELDS
 ]
+
+TEAM_STAT_IDENTITY_FIELDS = {"game_id", "team_id", "opponent_id", "is_home"}
+
+TEAM_STAT_FIELDS = [
+    name
+    for name in TeamGameStatsModel.model_fields
+    if name not in TEAM_STAT_IDENTITY_FIELDS
+]

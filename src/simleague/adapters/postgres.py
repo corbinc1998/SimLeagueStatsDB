@@ -19,6 +19,7 @@ from psycopg_pool import AsyncConnectionPool
 
 from simleague.domain.models import (
     STAT_FIELDS,
+    TEAM_STAT_FIELDS,
     GameModel,
     LeagueModel,
     PlayerGameStatModel,
@@ -722,11 +723,12 @@ class PostgresTeamStatRepository:
             conditions.append("opponent_id = %(opponent_id)s")
             params["opponent_id"] = opponent_id
 
-        stat_columns = [
-            c for c in TEAM_STAT_COLUMNS if c not in TEAM_STAT_KEY + ("is_home",)
-        ]
+        # TEAM_STAT_FIELDS excludes all four identity columns. Building
+        # the list from TEAM_STAT_KEY alone left opponent_id in, and
+        # SUM() over a text column is an error Postgres only raises at
+        # query time.
         sums = ", ".join(
-            f"COALESCE(SUM({field}), 0) AS {field}" for field in stat_columns
+            f"COALESCE(SUM({field}), 0) AS {field}" for field in TEAM_STAT_FIELDS
         )
         sql = (
             f"SELECT count(*) AS games_played, {sums} "

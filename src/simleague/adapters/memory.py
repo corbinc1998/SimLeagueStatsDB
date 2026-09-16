@@ -20,6 +20,7 @@ from typing import Any
 
 from simleague.domain.models import (
     STAT_FIELDS,
+    TEAM_STAT_FIELDS,
     GameModel,
     LeagueModel,
     PlayerGameStatModel,
@@ -29,13 +30,6 @@ from simleague.domain.models import (
     TeamGameStatsModel,
     TeamModel,
 )
-
-TEAM_STAT_FIELDS = [
-    name
-    for name in TeamGameStatsModel.model_fields
-    if name not in {"game_id", "team_id", "opponent_id", "is_home"}
-]
-
 
 class InMemoryStore:
     """Shared state for a set of in-memory repositories.
