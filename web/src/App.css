@@ -252,12 +252,6 @@
  .team-stats-form {
    background: var(--panel);
    padding: 0 0 18px;
- }
- 
- /* The team's own colour, as a spine down the side of its column. This is
-    the whole identity system: no labels needed to know which side you are
-    entering. */
- .team-stats-form {
    border-top: 3px solid var(--accent);
  }
  
@@ -298,52 +292,45 @@
    font-weight: 600;
  }
  
- fieldset {
-   border: none;
-   border-bottom: 1px solid var(--line);
-   margin: 0;
-   padding: 10px var(--gutter) 14px;
+ /* One column, in the order the box score shows them. Two columns would
+    read faster if the data were unordered, but it is not — the screen is
+    read top to bottom and so is this. */
+ .stat-list {
+   padding: 4px var(--gutter) 0;
  }
  
- fieldset:last-of-type {
-   border-bottom: none;
- }
- 
- legend {
-   color: var(--text-faint);
-   font-size: 12px;
-   font-weight: 600;
-   padding: 0;
-   margin-bottom: 6px;
- }
- 
- .stat-grid {
-   display: grid;
-   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-   column-gap: 22px;
- }
- 
- /* Label left, field right, on one line. Vertical density is the point:
-    28 fields per side has to be scannable without scrolling past the
-    section you are working in. */
- .stat-input {
+ .stat-row {
    display: flex;
    align-items: center;
    justify-content: space-between;
-   gap: 10px;
+   gap: 12px;
    height: var(--row);
    border-bottom: 1px solid var(--line);
  }
  
- .stat-input span {
-   color: var(--text-dim);
-   white-space: nowrap;
-   overflow: hidden;
-   text-overflow: ellipsis;
+ .stat-row:last-child {
+   border-bottom: none;
  }
  
- .stat-input input {
-   width: 68px;
+ .stat-label {
+   color: var(--text-dim);
+   white-space: nowrap;
+   display: flex;
+   align-items: baseline;
+   gap: 8px;
+ }
+ 
+ /* The format the field expects, shown next to the label rather than as
+    placeholder text — placeholder disappears the moment you type, which is
+    exactly when the format matters. */
+ .stat-hint {
+   color: var(--text-faint);
+   font-size: 11px;
+   font-variant-numeric: tabular-nums;
+ }
+ 
+ .stat-row input {
+   width: 84px;
    flex: none;
    background: transparent;
    border: none;
@@ -356,38 +343,41 @@
    padding: 3px 6px;
  }
  
- /* A zero is almost always a value nobody typed. Dimming it makes the
-    fields that hold real numbers the ones that stand out. */
- .stat-input input:not(:focus):placeholder-shown,
- .stat-input input[data-zero="true"]:not(:focus) {
+ .stat-row input[data-zero="true"]:not(:focus) {
    color: var(--text-faint);
  }
  
- .stat-input input:hover {
+ .stat-row input:hover {
    background: var(--panel-raised);
  }
  
- .stat-input input:focus {
+ .stat-row input:focus {
    outline: none;
    background: var(--panel-raised);
    box-shadow: inset 0 -2px 0 var(--accent);
  }
  
- /* The spinner arrows are useless for this: nobody clicks up 287 times,
-    and they steal width from the number. */
- .stat-input input::-webkit-outer-spin-button,
- .stat-input input::-webkit-inner-spin-button {
+ .stat-row input::-webkit-outer-spin-button,
+ .stat-row input::-webkit-inner-spin-button {
    appearance: none;
    margin: 0;
  }
  
- .stat-input input[type="number"] {
+ .stat-row input[type="number"] {
    appearance: textfield;
    -moz-appearance: textfield;
  }
  
- .stat-input input.invalid {
+ .stat-row input.invalid {
    box-shadow: inset 0 -2px 0 var(--loss);
+ }
+ 
+ .warn {
+   margin: 10px var(--gutter) 0;
+   padding: 8px 10px;
+   border-left: 2px solid var(--tie);
+   color: var(--tie);
+   font-size: 13px;
  }
  
  /* -------------------------------------------------------- save area */

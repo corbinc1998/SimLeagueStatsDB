@@ -9,97 +9,56 @@ interface TeamStatsFormProps {
   teamId: string;
   opponentId: string;
   isHome: boolean;
+  /** From the game record. Prefilled so the score is never retyped. */
+  points: number;
 }
 
-// Every stat field on the model, grouped the way the box score screen
-// groups them. Defining these as data rather than as 28 hand-written
-// inputs means adding a field later is one line, and the form cannot
-// drift out of sync with itself.
-//
-// `as const` makes TypeScript treat the field names as literal strings
-// rather than plain `string`, which is what lets them be checked against
-// keyof TeamStatsInput.
-const SECTIONS = [
-  {
-    title: "Scoring",
-    fields: [
-      { field: "points", label: "Points" },
-      { field: "firstDowns", label: "First Downs" },
-    ],
-  },
-  {
-    title: "Offense",
-    fields: [
-      { field: "totalOffense", label: "Total Offense" },
-      { field: "totalYards", label: "Total Yards" },
-      { field: "passYards", label: "Pass Yards" },
-      { field: "passAttempts", label: "Pass Att" },
-      { field: "passCompletions", label: "Pass Comp" },
-      { field: "rushYards", label: "Rush Yards" },
-      { field: "rushAttempts", label: "Rush Att" },
-    ],
-  },
-  {
-    title: "Conversions",
-    fields: [
-      { field: "thirdDownConv", label: "3rd Down Conv" },
-      { field: "thirdDownAtt", label: "3rd Down Att" },
-      { field: "fourthDownConv", label: "4th Down Conv" },
-      { field: "fourthDownAtt", label: "4th Down Att" },
-      { field: "twoPointConversionsMade", label: "2pt Made" },
-      { field: "twoPointConversionsAttempted", label: "2pt Att" },
-    ],
-  },
-  {
-    title: "Red Zone",
-    fields: [
-      { field: "redzoneTrips", label: "RZ Trips" },
-      { field: "redzoneTouchdowns", label: "RZ TD" },
-      { field: "redzoneFieldGoals", label: "RZ FG" },
-    ],
-  },
-  {
-    title: "Returns",
-    fields: [
-      { field: "kickReturnYards", label: "KR Yards" },
-      { field: "puntReturnYards", label: "PR Yards" },
-    ],
-  },
-  {
-    title: "Giveaways",
-    fields: [
-      { field: "turnovers", label: "Turnovers" },
-      { field: "interceptionsLost", label: "INT Lost" },
-      { field: "fumblesLost", label: "Fumbles Lost" },
-      { field: "sacksAllowed", label: "Sacks Allowed" },
-      { field: "sackYardsLost", label: "Sack Yds Lost" },
-    ],
-  },
-  {
-    title: "Penalties",
-    fields: [
-      { field: "penalties", label: "Penalties" },
-      { field: "penaltyYards", label: "Penalty Yards" },
-    ],
-  },
-] as const satisfies ReadonlyArray<{
-  title: string;
-  fields: ReadonlyArray<{ field: keyof TeamStatsInput; label: string }>;
-}>;
+// The order here is the order the box score shows them, top to bottom.
+// That is the whole point: you read down the screen and type down the
+// form without hunting for the next field.
+type SimpleField =
+  | "totalOffense"
+  | "rushYards"
+  | "passYards"
+  | "firstDowns"
+  | "puntReturnYards"
+  | "kickReturnYards"
+  | "totalYards"
+  | "turnovers";
 
-// The box score shows possession as 17:15, the column stores seconds.
-// Converting at the edge keeps the stored value summable and sortable —
-// a string like "17:15" cannot be averaged.
-function secondsToClock(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${mins}:${String(secs).padStart(2, "0")}`;
+const SIMPLE_FIELDS: { field: SimpleField; label: string }[] = [
+  { field: "totalOffense", label: "Total Offense" },
+  { field: "rushYards", label: "Rushing Yards" },
+  { field: "passYards", label: "Passing Yards" },
+  { field: "firstDowns", label: "First Downs" },
+  { field: "puntReturnYards", label: "PR Yards" },
+  { field: "kickReturnYards", label: "KR Yards" },
+  { field: "totalYards", label: "Total Yards" },
+  { field: "turnovers", label: "Turnovers" },
+];
+
+// Several stats appear on screen as one string holding two numbers. They
+// are typed the way they are displayed and split on the way to the
+// database, where two integers can be summed and averaged and a string
+// like "4-16" cannot.
+function parsePair(raw: string): [number, number] | null {
+  const match = raw.match(/^(\d+)\s*-\s*(\d+)$/);
+  if (!match) return null;
+  return [Number(match[1]), Number(match[2])];
 }
 
-function clockToSeconds(clock: string): number | null {
-  const match = clock.match(/^(\d{1,2}):([0-5]\d)$/);
+function formatPair(a: number, b: number): string {
+  return `${a}-${b}`;
+}
+
+function parseClock(raw: string): number | null {
+  const match = raw.match(/^(\d{1,2}):([0-5]\d)$/);
   if (!match) return null;
   return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function formatClock(seconds: number): string {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
 function blankStats(
@@ -107,25 +66,34 @@ function blankStats(
   teamId: string,
   opponentId: string,
   isHome: boolean,
+  points: number,
 ): TeamStatsInput {
-  // Zero every stat field from the same definition the inputs use, so the
-  // two cannot disagree. Built as a plain record first, because assigning
-  // by a computed key needs an index signature that TeamStatsInput does
-  // not have.
-  const zeroed: Record<string, number> = { timeOfPossession: 0 };
-  for (const section of SECTIONS) {
-    for (const { field } of section.fields) {
-      zeroed[field] = 0;
-    }
-  }
-
   return {
     gameId,
     teamId,
     opponentId,
     isHome,
-    ...zeroed,
-    points: zeroed.points ?? 0,
+    points,
+    totalOffense: 0,
+    rushYards: 0,
+    passYards: 0,
+    firstDowns: 0,
+    puntReturnYards: 0,
+    kickReturnYards: 0,
+    totalYards: 0,
+    turnovers: 0,
+    thirdDownConv: 0,
+    thirdDownAtt: 0,
+    fourthDownConv: 0,
+    fourthDownAtt: 0,
+    twoPointConversionsMade: 0,
+    twoPointConversionsAttempted: 0,
+    redzoneTrips: 0,
+    redzoneTouchdowns: 0,
+    redzoneFieldGoals: 0,
+    penalties: 0,
+    penaltyYards: 0,
+    timeOfPossession: 0,
   };
 }
 
@@ -134,20 +102,27 @@ export default function TeamStatsForm({
   teamId,
   opponentId,
   isHome,
+  points,
 }: TeamStatsFormProps) {
   const [form, setForm] = useState<TeamStatsInput>(
-    blankStats(gameId, teamId, opponentId, isHome),
+    blankStats(gameId, teamId, opponentId, isHome, points),
   );
+
+  // Composite fields keep their own text state so you can type "4-1"
+  // on the way to "4-16" without the parse rejecting each keystroke.
+  const [thirdDown, setThirdDown] = useState("0-0");
+  const [fourthDown, setFourthDown] = useState("0-0");
+  const [twoPoint, setTwoPoint] = useState("0-0");
+  const [redzone, setRedzone] = useState("0-0");
+  const [penalties, setPenalties] = useState("0-0");
   const [clock, setClock] = useState("0:00");
-  const [clockValid, setClockValid] = useState(true);
+  const [invalid, setInvalid] = useState<Set<string>>(new Set());
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exists, setExists] = useState(false);
 
-  // Load whatever is stored for this team in this game. A 404 means
-  // nothing has been entered yet, which is the normal case on a fresh
-  // game, so the blank form stands.
   useEffect(() => {
     setLoading(true);
     setError(null);
@@ -159,33 +134,98 @@ export default function TeamStatsForm({
         return res.json();
       })
       .then((data: TeamStats | null) => {
-        const next = data ?? blankStats(gameId, teamId, opponentId, isHome);
+        const next =
+          data ?? blankStats(gameId, teamId, opponentId, isHome, points);
         setForm(next);
-        setClock(secondsToClock(next.timeOfPossession ?? 0));
+        setThirdDown(
+          formatPair(next.thirdDownConv ?? 0, next.thirdDownAtt ?? 0),
+        );
+        setFourthDown(
+          formatPair(next.fourthDownConv ?? 0, next.fourthDownAtt ?? 0),
+        );
+        setTwoPoint(
+          formatPair(
+            next.twoPointConversionsMade ?? 0,
+            next.twoPointConversionsAttempted ?? 0,
+          ),
+        );
+        setRedzone(
+          formatPair(
+            (next.redzoneTouchdowns ?? 0) + (next.redzoneFieldGoals ?? 0),
+            next.redzoneTrips ?? 0,
+          ),
+        );
+        setPenalties(formatPair(next.penalties ?? 0, next.penaltyYards ?? 0));
+        setClock(formatClock(next.timeOfPossession ?? 0));
         setExists(data !== null);
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [gameId, teamId, opponentId, isHome]);
+  }, [gameId, teamId, opponentId, isHome, points]);
 
-  // One handler for every numeric input. The spread is the important
-  // part: state is replaced, never mutated. Writing form[field] = value
-  // would change the object React already holds, so React would see no
-  // change and skip the re-render.
+  function markInvalid(key: string, bad: boolean) {
+    setInvalid((current) => {
+      const next = new Set(current);
+      if (bad) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }
+
   function updateField(field: keyof TeamStatsInput, raw: string) {
     const value = raw === "" ? 0 : Number(raw);
     if (Number.isNaN(value)) return;
     setForm((current) => ({ ...current, [field]: value }));
   }
 
+  // One handler for every "x-y" field. The two target columns differ, so
+  // they are passed in rather than derived.
+  function updatePair(
+    key: string,
+    raw: string,
+    setText: (value: string) => void,
+    first: keyof TeamStatsInput,
+    second: keyof TeamStatsInput,
+  ) {
+    setText(raw);
+    const parsed = parsePair(raw);
+    markInvalid(key, parsed === null);
+    if (parsed) {
+      setForm((current) => ({
+        ...current,
+        [first]: parsed[0],
+        [second]: parsed[1],
+      }));
+    }
+  }
+
+  // Red zone shows as scores-trips. The numerator is the sum of red zone
+  // touchdowns and field goals, which are entered separately below, so
+  // only the trips are stored from here — the numerator is checked
+  // against those two instead.
+  function updateRedzone(raw: string) {
+    setRedzone(raw);
+    const parsed = parsePair(raw);
+    markInvalid("redzone", parsed === null);
+    if (parsed) {
+      setForm((current) => ({ ...current, redzoneTrips: parsed[1] }));
+    }
+  }
+
   function updateClock(raw: string) {
     setClock(raw);
-    const seconds = clockToSeconds(raw);
-    setClockValid(seconds !== null);
+    const seconds = parseClock(raw);
+    markInvalid("clock", seconds === null);
     if (seconds !== null) {
       setForm((current) => ({ ...current, timeOfPossession: seconds }));
     }
   }
+
+  const redzoneParsed = parsePair(redzone);
+  const redzoneScores =
+    (form.redzoneTouchdowns ?? 0) + (form.redzoneFieldGoals ?? 0);
+  const redzoneMismatch =
+    redzoneParsed !== null && redzoneParsed[0] !== redzoneScores;
 
   function save() {
     setSaving(true);
@@ -209,7 +249,6 @@ export default function TeamStatsForm({
       })
       .then((data: TeamStats) => {
         setForm(data);
-        setClock(secondsToClock(data.timeOfPossession));
         setExists(true);
       })
       .catch((err: Error) => setError(err.message))
@@ -219,9 +258,6 @@ export default function TeamStatsForm({
   if (loading) return <p className="loading">Loading</p>;
 
   return (
-    // The team's colour is injected as a custom property rather than a
-    // class, because it comes from data. Everything inside the column
-    // reads --accent: the spine, the focus underline, the save button.
     <div
       className="team-stats-form"
       style={{ "--accent": accentFor(teamId) } as React.CSSProperties}
@@ -235,71 +271,192 @@ export default function TeamStatsForm({
 
       {error && <p className="error">{error}</p>}
 
-      {SECTIONS.map((section) => (
-        <fieldset key={section.title}>
-          <legend>{section.title}</legend>
-          <div className="stat-grid">
-            {section.fields.map(({ field, label }) => (
-              <StatInput
-                key={field}
-                label={label}
-                field={field}
-                value={form[field] as number | undefined}
-                onChange={updateField}
-              />
-            ))}
-          </div>
-        </fieldset>
-      ))}
+      <div className="stat-list">
+        <Row label="Score">
+          <input
+            type="number"
+            value={form.points}
+            onFocus={(e) => e.target.select()}
+            onChange={(e) => updateField("points", e.target.value)}
+          />
+        </Row>
 
-      <fieldset>
-        <legend>Possession</legend>
-        <div className="stat-grid">
-          <label className="stat-input">
-            <span>Time of Possession</span>
+        {SIMPLE_FIELDS.map(({ field, label }) => (
+          <Row key={field} label={label}>
             <input
-              type="text"
-              value={clock}
-              placeholder="17:15"
-              onChange={(e) => updateClock(e.target.value)}
-              className={clockValid ? undefined : "invalid"}
+              type="number"
+              value={form[field] ?? 0}
+              data-zero={(form[field] ?? 0) === 0}
+              onFocus={(e) => e.target.select()}
+              onChange={(e) => updateField(field, e.target.value)}
             />
-          </label>
-        </div>
-      </fieldset>
+          </Row>
+        ))}
+
+        <Row label="3rd Down Conv" hint="4-16">
+          <PairInput
+            value={thirdDown}
+            invalid={invalid.has("third")}
+            onChange={(raw) =>
+              updatePair(
+                "third",
+                raw,
+                setThirdDown,
+                "thirdDownConv",
+                "thirdDownAtt",
+              )
+            }
+          />
+        </Row>
+
+        <Row label="4th Down Conv" hint="1-2">
+          <PairInput
+            value={fourthDown}
+            invalid={invalid.has("fourth")}
+            onChange={(raw) =>
+              updatePair(
+                "fourth",
+                raw,
+                setFourthDown,
+                "fourthDownConv",
+                "fourthDownAtt",
+              )
+            }
+          />
+        </Row>
+
+        <Row label="2 Point Conv" hint="0-1">
+          <PairInput
+            value={twoPoint}
+            invalid={invalid.has("twoPoint")}
+            onChange={(raw) =>
+              updatePair(
+                "twoPoint",
+                raw,
+                setTwoPoint,
+                "twoPointConversionsMade",
+                "twoPointConversionsAttempted",
+              )
+            }
+          />
+        </Row>
+
+        <Row label="Red Zone" hint="2-2">
+          <PairInput
+            value={redzone}
+            invalid={invalid.has("redzone")}
+            onChange={updateRedzone}
+          />
+        </Row>
+
+        <Row label="Red Zone TD">
+          <input
+            type="number"
+            value={form.redzoneTouchdowns ?? 0}
+            data-zero={(form.redzoneTouchdowns ?? 0) === 0}
+            onFocus={(e) => e.target.select()}
+            onChange={(e) => updateField("redzoneTouchdowns", e.target.value)}
+          />
+        </Row>
+
+        <Row label="Red Zone FG">
+          <input
+            type="number"
+            value={form.redzoneFieldGoals ?? 0}
+            data-zero={(form.redzoneFieldGoals ?? 0) === 0}
+            onFocus={(e) => e.target.select()}
+            onChange={(e) => updateField("redzoneFieldGoals", e.target.value)}
+          />
+        </Row>
+
+        <Row label="Penalties" hint="2-15">
+          <PairInput
+            value={penalties}
+            invalid={invalid.has("penalties")}
+            onChange={(raw) =>
+              updatePair(
+                "penalties",
+                raw,
+                setPenalties,
+                "penalties",
+                "penaltyYards",
+              )
+            }
+          />
+        </Row>
+
+        <Row label="Possession" hint="17:15">
+          <input
+            type="text"
+            inputMode="numeric"
+            value={clock}
+            className={invalid.has("clock") ? "invalid" : undefined}
+            onFocus={(e) => e.target.select()}
+            onChange={(e) => updateClock(e.target.value)}
+          />
+        </Row>
+      </div>
+
+      {redzoneMismatch && (
+        <p className="warn">
+          Red zone shows {redzoneParsed?.[0]} scores, but TD + FG is{" "}
+          {redzoneScores}.
+        </p>
+      )}
 
       <div className="form-actions">
         <button
           className="save-button"
           onClick={save}
-          disabled={saving || !clockValid}
+          disabled={saving || invalid.size > 0}
         >
           {saving ? "Saving" : exists ? "Update" : "Save"}
         </button>
-        {!clockValid && <span className="error">Possession needs MM:SS</span>}
+        {invalid.size > 0 && (
+          <span className="error">Check the highlighted fields</span>
+        )}
       </div>
     </div>
   );
 }
 
-interface StatInputProps {
+function Row({
+  label,
+  hint,
+  children,
+}: {
   label: string;
-  field: keyof TeamStatsInput;
-  value: number | undefined;
-  onChange: (field: keyof TeamStatsInput, raw: string) => void;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="stat-row">
+      <span className="stat-label">
+        {label}
+        {hint && <span className="stat-hint">{hint}</span>}
+      </span>
+      {children}
+    </label>
+  );
 }
 
-function StatInput({ label, field, value, onChange }: StatInputProps) {
+function PairInput({
+  value,
+  invalid,
+  onChange,
+}: {
+  value: string;
+  invalid: boolean;
+  onChange: (raw: string) => void;
+}) {
   return (
-    <label className="stat-input">
-      <span>{label}</span>
-      <input
-        type="number"
-        name={field}
-        value={value === 0 ? "" : value}
-        data-zero={(value ?? 0) === 0}
-        onChange={(e) => onChange(field, e.target.value)}
-      />
-    </label>
+    <input
+      type="text"
+      inputMode="numeric"
+      value={value}
+      className={invalid ? "invalid" : undefined}
+      onFocus={(e) => e.target.select()}
+      onChange={(e) => onChange(e.target.value)}
+    />
   );
 }
