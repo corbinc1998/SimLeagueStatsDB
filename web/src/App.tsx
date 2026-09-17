@@ -21,7 +21,7 @@ interface Game {
     }
   }
 
-// test
+// test2
 function App() {
   const [games, setGames] = useState<Game[]>([])
   const [seasonId, setSeasonId] = useState(1)
