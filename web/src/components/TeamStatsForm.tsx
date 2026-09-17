@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import type { TeamStats, TeamStatsInput } from "../types/types";
+import { accentFor } from "../teamColors";
 
 const API = "http://127.0.0.1:8000";
 
@@ -215,15 +216,22 @@ export default function TeamStatsForm({
       .finally(() => setSaving(false));
   }
 
-  if (loading) return <p>Loading…</p>;
+  if (loading) return <p className="loading">Loading</p>;
 
   return (
-    <div className="team-stats-form">
-      <h3>
-        <img alt={teamId} className="logo" src={`/logos/${teamId}.png`} />{" "}
-        {teamId.toUpperCase()} {isHome ? "(Home)" : "(Away)"}
-        {exists && <span className="saved-badge"> saved</span>}
-      </h3>
+    // The team's colour is injected as a custom property rather than a
+    // class, because it comes from data. Everything inside the column
+    // reads --accent: the spine, the focus underline, the save button.
+    <div
+      className="team-stats-form"
+      style={{ "--accent": accentFor(teamId) } as React.CSSProperties}
+    >
+      <div className="form-head">
+        <img alt={teamId} className="logo" src={`/logos/${teamId}.png`} />
+        <h3>{teamId.toUpperCase()}</h3>
+        <span className="side-label">{isHome ? "home" : "away"}</span>
+        {exists && <span className="saved-badge">saved</span>}
+      </div>
 
       {error && <p className="error">{error}</p>}
 
@@ -246,22 +254,30 @@ export default function TeamStatsForm({
 
       <fieldset>
         <legend>Possession</legend>
-        <label className="stat-input">
-          <span>Time of Possession</span>
-          <input
-            type="text"
-            value={clock}
-            placeholder="17:15"
-            onChange={(e) => updateClock(e.target.value)}
-            className={clockValid ? undefined : "invalid"}
-          />
-        </label>
-        {!clockValid && <span className="error">Use MM:SS</span>}
+        <div className="stat-grid">
+          <label className="stat-input">
+            <span>Time of Possession</span>
+            <input
+              type="text"
+              value={clock}
+              placeholder="17:15"
+              onChange={(e) => updateClock(e.target.value)}
+              className={clockValid ? undefined : "invalid"}
+            />
+          </label>
+        </div>
       </fieldset>
 
-      <button onClick={save} disabled={saving || !clockValid}>
-        {saving ? "Saving…" : exists ? "Update" : "Save"}
-      </button>
+      <div className="form-actions">
+        <button
+          className="save-button"
+          onClick={save}
+          disabled={saving || !clockValid}
+        >
+          {saving ? "Saving" : exists ? "Update" : "Save"}
+        </button>
+        {!clockValid && <span className="error">Possession needs MM:SS</span>}
+      </div>
     </div>
   );
 }
@@ -281,6 +297,7 @@ function StatInput({ label, field, value, onChange }: StatInputProps) {
         type="number"
         name={field}
         value={value ?? 0}
+        data-zero={(value ?? 0) === 0}
         onChange={(e) => onChange(field, e.target.value)}
       />
     </label>

@@ -1,19 +1,8 @@
 import { useState, useEffect } from 'react'
 import './App.css'
+import PlayerStatsTable from './components/PlayerStatsTable';
 import TeamStatsForm from './components/TeamStatsForm';
-
-interface Game { 
-  id: string;
-  homeTeamId: string;
-  awayTeamId: string;
-  homeScore: number;
-  awayScore: number;
-  }
-
-  interface Season { 
-    id: string;
-    name: string;
-    }
+import type { Game, Season } from './types/types'
 
   function scoreClass(score: number, opponent: number): string {
    if (score === opponent){
@@ -81,20 +70,40 @@ function App() {
 <button onClick={() => setActiveTab("away")}>{selectedGame.awayTeamId}</button>
 <button onClick={() => setActiveTab("home")}>{selectedGame.homeTeamId}</button>
 
-{activeTab === "team" && <div><TeamStatsForm
-  gameId={selectedGame.id}
-  teamId={selectedGame.homeTeamId}
-  opponentId={selectedGame.awayTeamId}
-  isHome={true}
-/>
+{activeTab === "team" && <div>
+  
 <TeamStatsForm
   gameId={selectedGame.id}
   teamId={selectedGame.awayTeamId}
   opponentId={selectedGame.homeTeamId}
   isHome={false}
-/></div>}
-{activeTab === "away" && <div>away players go here</div>}
-{activeTab === "home" && <div>home players go here</div>}
+/>
+  
+  <TeamStatsForm
+  gameId={selectedGame.id}
+  teamId={selectedGame.homeTeamId}
+  opponentId={selectedGame.awayTeamId}
+  isHome={true}
+/>
+</div>}
+{activeTab === "away" && (
+  <PlayerStatsTable
+    gameId={selectedGame.id}
+    seasonId={seasonId}
+    teamId={selectedGame.awayTeamId}
+    opponentId={selectedGame.homeTeamId}
+    isHome={false}
+  />
+)}
+{activeTab === "home" && (
+  <PlayerStatsTable
+    gameId={selectedGame.id}
+    seasonId={selectedGame.seasonId}
+    teamId={selectedGame.homeTeamId}
+    opponentId={selectedGame.awayTeamId}
+    isHome={true}
+  />
+)}
 </div>
 </div>
 ) : (
