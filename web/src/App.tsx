@@ -9,6 +9,11 @@ interface Game {
   awayScore: number;
   }
 
+  interface Season { 
+    id: string;
+    name: string;
+    }
+
   function scoreClass(score: number, opponent: number): string {
    if (score === opponent){
     return "score-tie"
@@ -21,11 +26,13 @@ interface Game {
     }
   }
 
-// test2
 function App() {
   const [games, setGames] = useState<Game[]>([])
-  const [seasonId, setSeasonId] = useState(1)
+  const [seasons, setSeasons] = useState<Season[]>([])
+  const [seasonId, setSeasonId] = useState("1")
   const [weekNumber, setWeekNumber] = useState(1)
+  const WEEKS = Array.from({ length: 21 }, (_, i) => i + 1)
+  // games
   useEffect(() =>{
       fetch(`http://localhost:8000/games?seasonId=${seasonId}&week=${weekNumber}`)
   .then(res => res.json())
@@ -33,9 +40,28 @@ function App() {
 
   }, [seasonId, weekNumber]);
 
+// season
+  useEffect(() =>{
+    fetch(`http://localhost:8000/seasons`)
+.then(res => res.json())
+.then(data => { console.log("seasons: ", data); setSeasons(data) })
+
+}, []);
+
 
 
   return (
+    <>
+<select value={seasonId} onChange={e => setSeasonId(e.target.value)}>
+{seasons.map(s => (
+  <option key={s.id} value={s.id}>{s.name}</option>
+))}
+</select>
+<select value={weekNumber} onChange={e => setWeekNumber(Number(e.target.value))}>
+  {WEEKS.map(w => (
+    <option key={w} value={w}>Week {w}</option>
+  ))}
+</select>
     <div>
 {games.map(game => (
     <div key={game.id} className='game'><img alt={game.awayTeamId} className='logo'src={`/logos/${game.awayTeamId}.png`}/> <span className={scoreClass(game.awayScore, game.homeScore)}>
@@ -46,6 +72,7 @@ function App() {
 
 ))}
     </div>
+    </>
   )
 }
 

@@ -1,3 +1,23 @@
+select {
+  appearance: none;        /* removes the native arrow */
+  /* then your own background, border, padding, custom arrow */
+}
+
+select,
+::picker(select) {
+  appearance: base-select;
+
+}
+* {
+  box-sizing: border-box;
+}
+
+option:hover{
+  background-color: rgb(21, 27, 53);
+  font-size: 14px;
+}
+
+
 .games {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
