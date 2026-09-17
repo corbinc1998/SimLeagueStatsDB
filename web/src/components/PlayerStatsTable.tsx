@@ -6,7 +6,7 @@ import type {
   PlayerStatNumericField,
   ResolvedPlayer,
 } from "../types/types";
-import { CATEGORIES } from "../statCategories";
+import { CATEGORIES, POSITIONS } from "../statCategories";
 import { accentFor } from "../teamColors";
 
 const API = "http://127.0.0.1:8000";
@@ -57,8 +57,20 @@ export default function PlayerStatsTable({
   const [error, setError] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<Player[] | null>(null);
 
+  // The category suggests a position for a new player, but it is only a
+  // suggestion — a fullback added from the rushing table is not an HB.
+  const [newPosition, setNewPosition] = useState(
+    CATEGORIES[0].positions[0] ?? "QB",
+  );
+
   const searchRef = useRef<HTMLInputElement>(null);
   const active = CATEGORIES.find((c) => c.id === category) ?? CATEGORIES[0];
+
+  // Switching category re-suggests a position, so adding a kicker from the
+  // kicking table does not inherit whatever was last picked.
+  useEffect(() => {
+    setNewPosition(active.positions[0] ?? "QB");
+  }, [active]);
 
   // Roster and existing stat lines, loaded together.
   useEffect(() => {
@@ -169,7 +181,7 @@ export default function PlayerStatsTable({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name,
-        position: active.positions[0] ?? "ATH",
+        position: newPosition,
         seasonId,
         teamId,
         forceNew: force,
@@ -338,9 +350,21 @@ export default function PlayerStatsTable({
         )}
 
         {query.trim() && suggestions.length === 0 && !candidates && (
-          <button className="ghost" onClick={() => resolveAndAdd()}>
-            Add {query.trim()} as a new {active.positions[0] ?? "player"}
-          </button>
+          <div className="new-player">
+            <select
+              value={newPosition}
+              onChange={(e) => setNewPosition(e.target.value)}
+            >
+              {POSITIONS.map((pos) => (
+                <option key={pos} value={pos}>
+                  {pos}
+                </option>
+              ))}
+            </select>
+            <button className="ghost" onClick={() => resolveAndAdd()}>
+              Add {query.trim()}
+            </button>
+          </div>
         )}
 
         {candidates && (

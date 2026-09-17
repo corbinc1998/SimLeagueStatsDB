@@ -7,6 +7,11 @@ import type { PlayerStatNumericField } from "./types/types";
 // `positions` is which roles default into this category — it seeds the
 // table with the right players rather than making you add a quarterback
 // to the passing table by hand every game.
+//
+// These are Madden's position codes, not the broadcast ones: halfbacks are
+// HB, not RB, and the line and secondary are split by side (LE/RE,
+// LOLB/MLB/ROLB, FS/SS). If a table comes up empty where players should
+// be, a code here does not match what the roster reports.
 
 export interface StatColumn {
   field: PlayerStatNumericField;
@@ -38,7 +43,7 @@ export const CATEGORIES: StatCategory[] = [
   {
     id: "rushing",
     label: "Rushing",
-    positions: ["RB", "HB", "FB", "QB"],
+    positions: ["HB", "FB", "QB"],
     columns: [
       { field: "rushAttempts", label: "Att" },
       { field: "rushYards", label: "Yds" },
@@ -53,7 +58,7 @@ export const CATEGORIES: StatCategory[] = [
   {
     id: "receiving",
     label: "Receiving",
-    positions: ["WR", "TE", "RB", "HB", "FB"],
+    positions: ["WR", "TE", "HB", "FB"],
     columns: [
       { field: "receptions", label: "Rec" },
       { field: "receivingYards", label: "Yds" },
@@ -66,7 +71,7 @@ export const CATEGORIES: StatCategory[] = [
   {
     id: "blocking",
     label: "Blocking",
-    positions: ["LT", "LG", "C", "RG", "RT", "OL", "TE"],
+    positions: ["LT", "LG", "C", "RG", "RT", "TE", "FB"],
     columns: [
       { field: "pancakes", label: "Pancake" },
       { field: "sacksAllowed", label: "Sacks Allowed" },
@@ -75,7 +80,7 @@ export const CATEGORIES: StatCategory[] = [
   {
     id: "defense",
     label: "Defense",
-    positions: ["DE", "DT", "LE", "RE", "LOLB", "MLB", "ROLB", "LB", "CB", "FS", "SS", "S"],
+    positions: ["LE", "RE", "DT", "LOLB", "MLB", "ROLB", "CB", "FS", "SS"],
     columns: [
       { field: "soloTackles", label: "Solo" },
       { field: "assistedTackles", label: "Ast" },
@@ -133,7 +138,7 @@ export const CATEGORIES: StatCategory[] = [
   {
     id: "returns",
     label: "Returns",
-    positions: ["WR", "RB", "HB", "CB"],
+    positions: ["WR", "HB", "CB"],
     columns: [
       { field: "kickReturns", label: "KR" },
       { field: "kickReturnYards", label: "KR Yds" },
@@ -151,3 +156,32 @@ export const CATEGORIES: StatCategory[] = [
 // players share one — so it is entered separately rather than in the
 // defense grid with everything else.
 export const SACKS_FIELD = "sacks" as const;
+
+
+// Every position Madden reports. Used for the picker when adding a player
+// who is not on the roster yet — the category suggests one, but a fullback
+// added from the rushing table should not be typed HB just because that is
+// what the category lists first.
+export const POSITIONS = [
+  "QB",
+  "HB",
+  "FB",
+  "WR",
+  "TE",
+  "LT",
+  "LG",
+  "C",
+  "RG",
+  "RT",
+  "LE",
+  "RE",
+  "DT",
+  "LOLB",
+  "MLB",
+  "ROLB",
+  "CB",
+  "FS",
+  "SS",
+  "K",
+  "P",
+] as const;
