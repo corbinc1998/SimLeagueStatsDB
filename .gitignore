@@ -93,3 +93,7 @@ Desktop.ini
 node_modules/
 .next/
 *.tsbuildinfo
+web/node_modules/
+
+# images
+web/public/logos/

@@ -1,0 +1,681 @@
+/* SimLeague — stat entry
+ *
+ * This is an instrument, not a page. One person enters roughly 25 player
+ * lines and 2 team lines per game, 267 games a season, reading numbers off
+ * a television. Density and scan speed beat polish.
+ *
+ * The rule the whole thing follows: colour is data. Every saturated colour
+ * on screen comes from a team's actual identity, injected per-side as a
+ * custom property. Chrome stays graphite so the two team columns are the
+ * only things the eye has to sort.
+ */
+
+ @import url("https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Archivo+Narrow:wght@500;600;700&display=swap");
+
+ :root {
+   --ink: #121418;
+   --panel: #191d24;
+   --panel-raised: #1f242d;
+   --line: #2a303b;
+   --line-bright: #3a4250;
+ 
+   --text: #e6e9ee;
+   --text-dim: #949daa;
+   --text-faint: #646d7b;
+ 
+   --win: #4ade80;
+   --loss: #f87171;
+   --tie: #fbbf24;
+ 
+   --row: 30px;
+   --gutter: 20px;
+ 
+   /* Set per side by the component; grey until a team is known. */
+   --accent: #6b7280;
+ 
+   font-family: "Archivo", system-ui, -apple-system, sans-serif;
+   font-feature-settings: "tnum" 1; /* tabular figures: numbers align */
+   color-scheme: dark;
+ }
+ 
+ * {
+   box-sizing: border-box;
+ }
+ 
+ body {
+   margin: 0;
+   background: var(--ink);
+   color: var(--text);
+   font-size: 14px;
+   line-height: 1.45;
+ }
+ 
+ /* ---------------------------------------------------------- controls */
+ 
+ .controls {
+   display: flex;
+   gap: 10px;
+   align-items: center;
+   padding: var(--gutter);
+   border-bottom: 1px solid var(--line);
+ }
+ 
+ select {
+   appearance: none;
+   background: var(--panel-raised);
+   color: var(--text);
+   border: 1px solid var(--line-bright);
+   border-radius: 3px;
+   padding: 7px 30px 7px 11px;
+   font: inherit;
+   font-weight: 500;
+   cursor: pointer;
+ 
+   /* The native arrow cannot be styled, so it is replaced with one drawn
+      as a background image. */
+   background-image: linear-gradient(
+       45deg,
+       transparent 50%,
+       var(--text-dim) 50%
+     ),
+     linear-gradient(135deg, var(--text-dim) 50%, transparent 50%);
+   background-position:
+     calc(100% - 15px) center,
+     calc(100% - 11px) center;
+   background-size:
+     4px 4px,
+     4px 4px;
+   background-repeat: no-repeat;
+ }
+ 
+ select:hover {
+   border-color: var(--text-faint);
+ }
+ 
+ select:focus-visible {
+   outline: 2px solid var(--accent);
+   outline-offset: 1px;
+ }
+ 
+ /* ------------------------------------------------------- game tiles */
+ 
+ .games {
+   display: grid;
+   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+   gap: 1px;
+   background: var(--line);
+   border-top: 1px solid var(--line);
+   border-bottom: 1px solid var(--line);
+ }
+ 
+ /* A 1px grid gap over a lined background gives hairline rules between
+    tiles without each tile carrying its own border — no doubled edges. */
+ .game {
+   display: flex;
+   align-items: center;
+   justify-content: center;
+   gap: 8px;
+   padding: 14px 10px;
+   background: var(--panel);
+   cursor: pointer;
+   transition: background 120ms ease;
+ }
+ 
+ .game:hover {
+   background: var(--panel-raised);
+ }
+ 
+ .game:focus-visible {
+   outline: 2px solid var(--text);
+   outline-offset: -2px;
+ }
+ 
+ .logo {
+   height: 26px;
+   width: auto;
+   flex: none;
+ }
+ 
+ .score-win,
+ .score-loss,
+ .score-tie {
+   font-weight: 700;
+   font-size: 17px;
+   min-width: 2ch;
+   text-align: center;
+ }
+ 
+ .score-win {
+   color: var(--win);
+ }
+ .score-loss {
+   color: var(--loss);
+ }
+ .score-tie {
+   color: var(--tie);
+ }
+ 
+ .at {
+   color: var(--text-faint);
+   font-size: 12px;
+ }
+ 
+ /* ------------------------------------------------------ game detail */
+ 
+ .detail-header {
+   display: flex;
+   align-items: center;
+   gap: 18px;
+   padding: var(--gutter);
+   border-bottom: 1px solid var(--line);
+ }
+ 
+ .back-button {
+   background: none;
+   border: 1px solid var(--line-bright);
+   color: var(--text-dim);
+   border-radius: 3px;
+   padding: 6px 12px;
+   font: inherit;
+   cursor: pointer;
+ }
+ 
+ .back-button:hover {
+   color: var(--text);
+   border-color: var(--text-faint);
+ }
+ 
+ .matchup {
+   display: flex;
+   align-items: center;
+   gap: 12px;
+ }
+ 
+ .matchup .logo {
+   height: 36px;
+ }
+ 
+ .matchup .score-win,
+ .matchup .score-loss,
+ .matchup .score-tie {
+   font-family: "Archivo Narrow", "Archivo", sans-serif;
+   font-size: 32px;
+   font-weight: 700;
+   letter-spacing: -0.01em;
+ }
+ 
+ /* ------------------------------------------------------------- tabs */
+ 
+ .tabs {
+   display: flex;
+   gap: 0;
+   border-bottom: 1px solid var(--line);
+   padding: 0 var(--gutter);
+ }
+ 
+ .tab {
+   background: none;
+   border: none;
+   border-bottom: 2px solid transparent;
+   color: var(--text-dim);
+   padding: 11px 16px;
+   font: inherit;
+   font-weight: 500;
+   cursor: pointer;
+   margin-bottom: -1px;
+ }
+ 
+ .tab:hover {
+   color: var(--text);
+ }
+ 
+ .tab.active {
+   color: var(--text);
+   border-bottom-color: var(--accent, var(--text));
+ }
+ 
+ /* ------------------------------------------------- team stats forms */
+ 
+ .team-stats-pair {
+   display: grid;
+   grid-template-columns: 1fr 1fr;
+   gap: 1px;
+   background: var(--line);
+ }
+ 
+ @media (max-width: 880px) {
+   .team-stats-pair {
+     grid-template-columns: 1fr;
+   }
+ }
+ 
+ .team-stats-form {
+   background: var(--panel);
+   padding: 0 0 18px;
+ }
+ 
+ /* The team's own colour, as a spine down the side of its column. This is
+    the whole identity system: no labels needed to know which side you are
+    entering. */
+ .team-stats-form {
+   border-top: 3px solid var(--accent);
+ }
+ 
+ .form-head {
+   display: flex;
+   align-items: center;
+   gap: 10px;
+   padding: 14px var(--gutter);
+   border-bottom: 1px solid var(--line);
+   position: sticky;
+   top: 0;
+   background: var(--panel);
+   z-index: 1;
+ }
+ 
+ .form-head .logo {
+   height: 30px;
+ }
+ 
+ .form-head h3 {
+   margin: 0;
+   font-family: "Archivo Narrow", "Archivo", sans-serif;
+   font-size: 20px;
+   font-weight: 700;
+   letter-spacing: 0.01em;
+ }
+ 
+ .side-label {
+   color: var(--text-faint);
+   font-size: 12px;
+   font-weight: 500;
+ }
+ 
+ .saved-badge {
+   margin-left: auto;
+   color: var(--accent);
+   font-size: 12px;
+   font-weight: 600;
+ }
+ 
+ fieldset {
+   border: none;
+   border-bottom: 1px solid var(--line);
+   margin: 0;
+   padding: 10px var(--gutter) 14px;
+ }
+ 
+ fieldset:last-of-type {
+   border-bottom: none;
+ }
+ 
+ legend {
+   color: var(--text-faint);
+   font-size: 12px;
+   font-weight: 600;
+   padding: 0;
+   margin-bottom: 6px;
+ }
+ 
+ .stat-grid {
+   display: grid;
+   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+   column-gap: 22px;
+ }
+ 
+ /* Label left, field right, on one line. Vertical density is the point:
+    28 fields per side has to be scannable without scrolling past the
+    section you are working in. */
+ .stat-input {
+   display: flex;
+   align-items: center;
+   justify-content: space-between;
+   gap: 10px;
+   height: var(--row);
+   border-bottom: 1px solid var(--line);
+ }
+ 
+ .stat-input span {
+   color: var(--text-dim);
+   white-space: nowrap;
+   overflow: hidden;
+   text-overflow: ellipsis;
+ }
+ 
+ .stat-input input {
+   width: 68px;
+   flex: none;
+   background: transparent;
+   border: none;
+   border-radius: 2px;
+   color: var(--text);
+   font: inherit;
+   font-weight: 600;
+   font-variant-numeric: tabular-nums;
+   text-align: right;
+   padding: 3px 6px;
+ }
+ 
+ /* A zero is almost always a value nobody typed. Dimming it makes the
+    fields that hold real numbers the ones that stand out. */
+ .stat-input input:not(:focus):placeholder-shown,
+ .stat-input input[data-zero="true"]:not(:focus) {
+   color: var(--text-faint);
+ }
+ 
+ .stat-input input:hover {
+   background: var(--panel-raised);
+ }
+ 
+ .stat-input input:focus {
+   outline: none;
+   background: var(--panel-raised);
+   box-shadow: inset 0 -2px 0 var(--accent);
+ }
+ 
+ /* The spinner arrows are useless for this: nobody clicks up 287 times,
+    and they steal width from the number. */
+ .stat-input input::-webkit-outer-spin-button,
+ .stat-input input::-webkit-inner-spin-button {
+   appearance: none;
+   margin: 0;
+ }
+ 
+ .stat-input input[type="number"] {
+   appearance: textfield;
+   -moz-appearance: textfield;
+ }
+ 
+ .stat-input input.invalid {
+   box-shadow: inset 0 -2px 0 var(--loss);
+ }
+ 
+ /* -------------------------------------------------------- save area */
+ 
+ .form-actions {
+   display: flex;
+   align-items: center;
+   gap: 12px;
+   padding: 14px var(--gutter) 0;
+ }
+ 
+ .save-button {
+   background: var(--accent);
+   border: none;
+   border-radius: 3px;
+   color: #fff;
+   padding: 9px 20px;
+   font: inherit;
+   font-weight: 600;
+   cursor: pointer;
+   /* Team colours vary wildly in lightness; a dark scrim under white text
+      keeps the label legible on Pittsburgh gold as well as Ravens purple. */
+   text-shadow: 0 1px 2px rgb(0 0 0 / 0.45);
+ }
+ 
+ .save-button:hover:not(:disabled) {
+   filter: brightness(1.12);
+ }
+ 
+ .save-button:disabled {
+   background: var(--line-bright);
+   color: var(--text-faint);
+   cursor: not-allowed;
+   text-shadow: none;
+ }
+ 
+ .error {
+   color: var(--loss);
+   margin: 0;
+   font-size: 13px;
+ }
+ 
+ .hint {
+   color: var(--text-faint);
+   font-size: 12px;
+ }
+ 
+ /* ------------------------------------------------------------ states */
+ 
+ .loading,
+ .empty {
+   padding: 40px var(--gutter);
+   color: var(--text-faint);
+ }
+ 
+ @media (prefers-reduced-motion: reduce) {
+   * {
+     transition: none !important;
+   }
+ }
+ 
+ /* ------------------------------------------------- player stat table */
+ 
+ .player-stats {
+   padding: 0 0 18px;
+ }
+ 
+ /* Categories are the primary navigation here — you work through the box
+    score one at a time — so they sit above the table rather than buried in
+    a dropdown. */
+ .category-bar {
+   display: flex;
+   flex-wrap: wrap;
+   gap: 6px;
+   padding: 14px var(--gutter);
+   border-bottom: 1px solid var(--line);
+ }
+ 
+ .chip {
+   background: var(--panel-raised);
+   border: 1px solid var(--line-bright);
+   border-radius: 3px;
+   color: var(--text-dim);
+   padding: 5px 12px;
+   font: inherit;
+   font-weight: 500;
+   cursor: pointer;
+ }
+ 
+ .chip:hover {
+   color: var(--text);
+ }
+ 
+ .chip.active {
+   background: var(--accent);
+   border-color: var(--accent);
+   color: #fff;
+   text-shadow: 0 1px 2px rgb(0 0 0 / 0.45);
+ }
+ 
+ .stat-table {
+   width: 100%;
+   border-collapse: collapse;
+   font-variant-numeric: tabular-nums;
+ }
+ 
+ .stat-table th {
+   color: var(--text-faint);
+   font-size: 12px;
+   font-weight: 600;
+   text-align: right;
+   padding: 8px 6px;
+   border-bottom: 1px solid var(--line-bright);
+   white-space: nowrap;
+ }
+ 
+ .stat-table td {
+   padding: 0 6px;
+   border-bottom: 1px solid var(--line);
+   height: var(--row);
+ }
+ 
+ .stat-table .player-col {
+   text-align: left;
+   padding-left: var(--gutter);
+   width: 1%;
+   white-space: nowrap;
+ }
+ 
+ .player-name {
+   font-weight: 500;
+ }
+ 
+ .player-pos {
+   color: var(--text-faint);
+   font-size: 12px;
+   margin-left: 6px;
+ }
+ 
+ /* A row with unsaved changes carries the team colour on its left edge, so
+    you can see what is pending without reading the button. */
+ .stat-table tr.dirty .player-col {
+   box-shadow: inset 3px 0 0 var(--accent);
+ }
+ 
+ .stat-table input {
+   width: 100%;
+   min-width: 46px;
+   background: transparent;
+   border: none;
+   color: var(--text);
+   font: inherit;
+   font-weight: 600;
+   font-variant-numeric: tabular-nums;
+   text-align: right;
+   padding: 3px 4px;
+   border-radius: 2px;
+ }
+ 
+ .stat-table input[data-zero="true"]:not(:focus) {
+   color: var(--text-faint);
+ }
+ 
+ .stat-table input:hover {
+   background: var(--panel-raised);
+ }
+ 
+ .stat-table input:focus {
+   outline: none;
+   background: var(--panel-raised);
+   box-shadow: inset 0 -2px 0 var(--accent);
+ }
+ 
+ .stat-table input::-webkit-outer-spin-button,
+ .stat-table input::-webkit-inner-spin-button {
+   appearance: none;
+   margin: 0;
+ }
+ 
+ .stat-table input[type="number"] {
+   appearance: textfield;
+   -moz-appearance: textfield;
+ }
+ 
+ .stat-table td.empty {
+   color: var(--text-faint);
+   text-align: center;
+   padding: 24px;
+ }
+ 
+ /* ------------------------------------------------------- add player */
+ 
+ .add-player {
+   position: relative;
+   padding: 14px var(--gutter) 0;
+   display: flex;
+   flex-direction: column;
+   gap: 8px;
+   align-items: flex-start;
+ }
+ 
+ .add-player > input {
+   background: var(--panel-raised);
+   border: 1px solid var(--line-bright);
+   border-radius: 3px;
+   color: var(--text);
+   font: inherit;
+   padding: 8px 12px;
+   width: 280px;
+ }
+ 
+ .add-player > input:focus {
+   outline: none;
+   border-color: var(--accent);
+ }
+ 
+ .suggestions {
+   list-style: none;
+   margin: 0;
+   padding: 0;
+   width: 280px;
+   border: 1px solid var(--line-bright);
+   border-radius: 3px;
+   overflow: hidden;
+ }
+ 
+ .suggestions button {
+   display: block;
+   width: 100%;
+   text-align: left;
+   background: var(--panel-raised);
+   border: none;
+   border-bottom: 1px solid var(--line);
+   color: var(--text);
+   font: inherit;
+   padding: 7px 12px;
+   cursor: pointer;
+ }
+ 
+ .suggestions li:last-child button {
+   border-bottom: none;
+ }
+ 
+ .suggestions button:hover {
+   background: var(--accent);
+   color: #fff;
+ }
+ 
+ .ghost {
+   background: none;
+   border: 1px dashed var(--line-bright);
+   border-radius: 3px;
+   color: var(--text-dim);
+   font: inherit;
+   padding: 7px 12px;
+   cursor: pointer;
+   text-align: left;
+ }
+ 
+ .ghost:hover {
+   color: var(--text);
+   border-color: var(--accent);
+ }
+ 
+ /* Ambiguity is surfaced, not guessed at: two players can share a name
+    across nine seasons, and picking the wrong one merges two careers. */
+ .candidates {
+   display: flex;
+   flex-direction: column;
+   gap: 6px;
+   align-items: flex-start;
+   padding: 12px;
+   border: 1px solid var(--tie);
+   border-radius: 3px;
+ }
+ 
+ .candidates p {
+   margin: 0 0 2px;
+   color: var(--text-dim);
+   font-size: 13px;
+ }
+ 
+ .candidates button {
+   background: var(--panel-raised);
+   border: 1px solid var(--line-bright);
+   border-radius: 3px;
+   color: var(--text);
+   font: inherit;
+   padding: 6px 12px;
+   cursor: pointer;
+ }
