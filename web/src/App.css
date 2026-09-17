@@ -1,0 +1,27 @@
+.games {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.game{
+  font-size: 18px;
+  border: 1px solid;
+  padding: 10px;
+  
+}
+
+.game:hover{
+  background-color: rgb(21, 27, 53);
+  font-size: 24px;
+
+}
+
+.score-win { color: green; }
+.score-loss { color: red; }
+.score-tie { color: gold; }
+
+.logo {
+  height: 20px;
+  width: auto;
+}

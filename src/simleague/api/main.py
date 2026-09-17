@@ -16,6 +16,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Response, status
 from pydantic.alias_generators import to_camel
+from fastapi.middleware.cors import CORSMiddleware
 
 from simleague.api.dependencies import (
     GameRepo,
@@ -46,6 +47,20 @@ app = FastAPI(
     version="0.1.0",
     description="Simulation results, stats, and standings",
     lifespan=lifespan,
+)
+
+# The React dev server runs on a different port, which the browser treats
+# as a different origin and blocks by default. This tells it those origins
+# are allowed to read responses from this API.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
