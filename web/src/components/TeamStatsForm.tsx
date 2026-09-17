@@ -296,7 +296,7 @@ function StatInput({ label, field, value, onChange }: StatInputProps) {
       <input
         type="number"
         name={field}
-        value={value ?? 0}
+        value={value === 0 ? "" : value}
         data-zero={(value ?? 0) === 0}
         onChange={(e) => onChange(field, e.target.value)}
       />
