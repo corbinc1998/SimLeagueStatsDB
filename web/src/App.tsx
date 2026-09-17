@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import './App.css'
+import TeamStatsForm from './components/TeamStatsForm';
 
 interface Game { 
   id: string;
@@ -80,7 +81,18 @@ function App() {
 <button onClick={() => setActiveTab("away")}>{selectedGame.awayTeamId}</button>
 <button onClick={() => setActiveTab("home")}>{selectedGame.homeTeamId}</button>
 
-{activeTab === "team" && <div>team stats go here</div>}
+{activeTab === "team" && <div><TeamStatsForm
+  gameId={selectedGame.id}
+  teamId={selectedGame.homeTeamId}
+  opponentId={selectedGame.awayTeamId}
+  isHome={true}
+/>
+<TeamStatsForm
+  gameId={selectedGame.id}
+  teamId={selectedGame.awayTeamId}
+  opponentId={selectedGame.homeTeamId}
+  isHome={false}
+/></div>}
 {activeTab === "away" && <div>away players go here</div>}
 {activeTab === "home" && <div>home players go here</div>}
 </div>
