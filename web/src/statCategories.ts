@@ -32,7 +32,6 @@ export const CATEGORIES: StatCategory[] = [
       { field: "passYards", label: "Yds" },
       { field: "passTouchdowns", label: "TD" },
       { field: "interceptions", label: "Int" },
-      { field: "sacksTaken", label: "Sck" },
       { field: "passLong", label: "Lng" },
     ],
   },
