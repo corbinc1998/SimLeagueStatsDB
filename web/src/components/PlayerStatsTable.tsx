@@ -57,6 +57,12 @@ export default function PlayerStatsTable({
   const [error, setError] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<Player[] | null>(null);
 
+  // In-progress text per cell, keyed "playerId:field". A number input is
+  // controlled, so "-" on its own is NaN and gets discarded before it
+  // reaches the screen — which makes negative yardage impossible to type.
+  // Rushing, receiving and returns can all lose yards.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+
   // The category suggests a position for a new player, but it is only a
   // suggestion — a fullback added from the rushing table is not an HB.
   const [newPosition, setNewPosition] = useState(
@@ -130,12 +136,22 @@ export default function PlayerStatsTable({
     );
   }
 
+  function draftKey(playerId: string, field: string) {
+    return `${playerId}:${field}`;
+  }
+
   function updateField(
     playerId: string,
     field: PlayerStatNumericField,
     raw: string,
   ) {
-    const value = raw === "" ? 0 : Number(raw);
+    const key = draftKey(playerId, field);
+    setDrafts((current) => ({ ...current, [key]: raw }));
+
+    // "" and "-" are valid things to have typed so far, but neither is a
+    // number yet, so the stored value waits.
+    if (raw === "" || raw === "-") return;
+    const value = Number(raw);
     if (Number.isNaN(value)) return;
 
     setLines((current) => ({
@@ -143,6 +159,17 @@ export default function PlayerStatsTable({
       [playerId]: { ...ensureLine(playerId), [field]: value },
     }));
     setDirty((current) => new Set(current).add(playerId));
+  }
+
+  // On blur the draft goes away and the cell shows the stored number, so a
+  // half-typed "-" does not linger as if it meant something.
+  function commitField(playerId: string, field: PlayerStatNumericField) {
+    const key = draftKey(playerId, field);
+    setDrafts((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
   }
 
   function updateSacks(playerId: string, raw: string) {
@@ -298,9 +325,16 @@ export default function PlayerStatsTable({
                 {active.columns.map((col) => (
                   <td key={col.field}>
                     <input
-                      type="number"
-                      value={line?.[col.field] ?? 0}
+                      type="text"
+                      inputMode="numeric"
+                      value={
+                        drafts[draftKey(player.id, col.field)] ??
+                        line?.[col.field] ??
+                        0
+                      }
                       data-zero={(line?.[col.field] ?? 0) === 0}
+                      onFocus={(e) => e.target.select()}
+                      onBlur={() => commitField(player.id, col.field)}
                       onChange={(e) =>
                         updateField(player.id, col.field, e.target.value)
                       }

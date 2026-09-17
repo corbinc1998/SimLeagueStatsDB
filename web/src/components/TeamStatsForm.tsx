@@ -118,6 +118,13 @@ export default function TeamStatsForm({
   const [clock, setClock] = useState("0:00");
   const [invalid, setInvalid] = useState<Set<string>>(new Set());
 
+  // A number input is controlled, so anything that does not parse is
+  // discarded before it reaches the screen — which makes "-" impossible to
+  // type, because on its own it is NaN. Keeping the in-progress text lets
+  // a minus sign exist on the way to -3. Sacks and returns both lose
+  // yards, so negatives are real.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -173,9 +180,27 @@ export default function TeamStatsForm({
   }
 
   function updateField(field: keyof TeamStatsInput, raw: string) {
-    const value = raw === "" ? 0 : Number(raw);
+    setDrafts((current) => ({ ...current, [field]: raw }));
+    // "" and "-" are valid things to have typed so far, but neither is a
+    // number yet, so the stored value waits.
+    if (raw === "" || raw === "-") return;
+    const value = Number(raw);
     if (Number.isNaN(value)) return;
     setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  // On blur the draft goes away and the field shows the stored number, so
+  // a half-typed "-" does not linger as if it meant something.
+  function commitField(field: keyof TeamStatsInput) {
+    setDrafts((current) => {
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+  }
+
+  function shown(field: keyof TeamStatsInput): string | number {
+    return drafts[field] ?? form[field] ?? 0;
   }
 
   // One handler for every "x-y" field. The two target columns differ, so
@@ -274,9 +299,11 @@ export default function TeamStatsForm({
       <div className="stat-list">
         <Row label="Score">
           <input
-            type="number"
-            value={form.points}
+            type="text"
+            inputMode="numeric"
+            value={shown("points")}
             onFocus={(e) => e.target.select()}
+            onBlur={() => commitField("points")}
             onChange={(e) => updateField("points", e.target.value)}
           />
         </Row>
@@ -284,10 +311,12 @@ export default function TeamStatsForm({
         {SIMPLE_FIELDS.map(({ field, label }) => (
           <Row key={field} label={label}>
             <input
-              type="number"
-              value={form[field] ?? 0}
+              type="text"
+              inputMode="numeric"
+              value={shown(field)}
               data-zero={(form[field] ?? 0) === 0}
               onFocus={(e) => e.target.select()}
+              onBlur={() => commitField(field)}
               onChange={(e) => updateField(field, e.target.value)}
             />
           </Row>
@@ -351,20 +380,24 @@ export default function TeamStatsForm({
 
         <Row label="Red Zone TD">
           <input
-            type="number"
-            value={form.redzoneTouchdowns ?? 0}
+            type="text"
+            inputMode="numeric"
+            value={shown("redzoneTouchdowns")}
             data-zero={(form.redzoneTouchdowns ?? 0) === 0}
             onFocus={(e) => e.target.select()}
+            onBlur={() => commitField("redzoneTouchdowns")}
             onChange={(e) => updateField("redzoneTouchdowns", e.target.value)}
           />
         </Row>
 
         <Row label="Red Zone FG">
           <input
-            type="number"
-            value={form.redzoneFieldGoals ?? 0}
+            type="text"
+            inputMode="numeric"
+            value={shown("redzoneFieldGoals")}
             data-zero={(form.redzoneFieldGoals ?? 0) === 0}
             onFocus={(e) => e.target.select()}
+            onBlur={() => commitField("redzoneFieldGoals")}
             onChange={(e) => updateField("redzoneFieldGoals", e.target.value)}
           />
         </Row>
