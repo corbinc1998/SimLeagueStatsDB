@@ -28,7 +28,7 @@ option:hover{
   font-size: 18px;
   border: 1px solid;
   padding: 10px;
-  
+  cursor: pointer
 }
 
 .game:hover{
@@ -44,4 +44,8 @@ option:hover{
 .logo {
   height: 20px;
   width: auto;
+}
+
+.back-button {
+  display: block;
 }
