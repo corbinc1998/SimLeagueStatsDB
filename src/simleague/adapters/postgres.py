@@ -499,7 +499,7 @@ class PostgresGameRepository:
 
         sql = (
             f"SELECT * FROM games {where_clause(conditions)} "
-            f"ORDER BY season_id::int, week, played_at"
+            f"ORDER BY season_id::int, week, played_at, id"
         )
         async with self.pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
