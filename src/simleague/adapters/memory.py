@@ -270,6 +270,7 @@ class InMemoryGameRepository:
                 int(x.seasonId) if x.seasonId.isdigit() else 0,
                 x.week,
                 x.date,
+                x.id,
             ),
         )
 
